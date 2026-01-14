@@ -1,0 +1,60 @@
+{
+  "domains": ["en.guazi.com", "ar.guazi.com"],
+  "maxPagesPerCategory": 3,
+  "concurrency": 3,
+  "timeout": 30000,
+  "retries": 2,
+  "delay": 1000,
+  "similarityThreshold": 0.75,
+  "viewports": {
+    "pc": {
+      "width": 1920,
+      "height": 1080,
+      "deviceScaleFactor": 1,
+      "isMobile": false
+    },
+    "mobile": {
+      "width": 375,
+      "height": 667,
+      "deviceScaleFactor": 2,
+      "isMobile": true,
+      "hasTouch": true
+    }
+  },
+  "excludedPatterns": [
+    "/api/",
+    "/static/",
+    "/usedcars\\.html$",
+    "/auction.*\\.html$",
+    "/how-to-buy$",
+    "/contact$",
+    "/about$",
+    "/faq$",
+    "/return-policy$",
+    "/shipping-policy$",
+    "/after-sales-policy$",
+    "/privacy-policy$",
+    "/conditions-terms$",
+    "\\.(jpg|jpeg|png|gif|svg|webp|pdf|zip|tar|gz)$",
+    "^mailto:",
+    "^tel:"
+  ],
+  "pageTypePatterns": {
+    "detail": ["^/products/.*\\.html$"],
+    "list": ["^/used-cars/", "^/cars/"]
+  },
+  "output": {
+    "screenshotsDir": "./output/screenshots",
+    "reportsDir": "./output/reports",
+    "dataDir": "./output/data",
+    "logsDir": "./logs"
+  },
+  "checks": {
+    "viewportOverflow": true,
+    "horizontalScroll": true,
+    "httpErrors": true,
+    "timeout": true,
+    "jsErrors": true,
+    "brokenImages": true
+  }
+}

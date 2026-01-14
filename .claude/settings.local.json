@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "mcp__web-search-prime__webSearchPrime",
+      "Bash(npm install)",
+      "Bash(npx playwright install:*)",
+      "Bash(PLAYWRIGHT_DOWNLOAD_HOST=https://playwright.azureedge.net npx playwright install:*)",
+      "Bash(export:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run monitor:*)",
+      "Bash(ls:*)",
+      "Bash(open:*)",
+      "Bash(npm install:*)",
+      "Bash(curl:*)",
+      "Bash(pkill:*)",
+      "Bash(python3:*)",
+      "Bash(kill:*)",
+      "Bash(xargs kill:*)",
+      "Bash(npm run server:*)",
+      "Bash(npx tsc:*)",
+      "Bash(lsof:*)",
+      "Bash(find:*)",
+      "Bash(sqlite3:*)",
+      "Bash(tree:*)",
+      "Bash(timeout 120 node:*)",
+      "Bash(tee:*)",
+      "Bash(node:*)",
+      "Bash(grep \"Screenshot captured\" echo \"\" echo \"Check for errors:\" tail -50 /tmp/scan-serial-test.log)"
+    ]
+  }
+}
