@@ -75,16 +75,13 @@ export class ScreenshotCapture {
         height: viewport.height,
       });
 
-      // Capture page screenshot with optimized timeout
-      // Use longer timeout for homepage which has more resources
       const isHomepage = url === '/' || url === domain || url.endsWith(`//${domain}/`);
-      const baseTimeout = isHomepage ? 12000 : 8000;
-      
-      // Retry strategy: up to 3 retries (1 initial + 3 retries = 4 attempts total)
+      const baseTimeout = isHomepage ? 20000 : 15000;
+
       const maxRetries = 3;
       let lastError: Error | null = null;
-      
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
           if (attempt > 0) {
             logger.info(`Retry screenshot capture for ${url} (attempt ${attempt}/${maxRetries})`);
@@ -107,9 +104,8 @@ export class ScreenshotCapture {
           const err = error instanceof Error ? error : new Error(String(error));
           lastError = err;
           logger.warn(`Screenshot attempt ${attempt + 1} failed for ${url}: ${err.message}`);
-          
-          // If this was the last attempt, don't suppress the error
-          if (attempt === maxRetries) {
+
+          if (attempt === maxRetries - 1) {
             throw err;
           }
         }
