@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && mkdir -p dist/reporter/public && cp -r src/reporter/public/* dist/reporter/public/",
     "monitor": "node --loader ts-node/esm src/index.ts",
     "monitor:en": "node --loader ts-node/esm src/index.ts --domain en.guazi.com",
     "monitor:ar": "node --loader ts-node/esm src/index.ts --domain ar.guazi.com",
