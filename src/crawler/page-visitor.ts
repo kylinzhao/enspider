@@ -42,8 +42,38 @@ export class PageVisitor {
         timeout: this.config.timeout,
       });
 
-      // Wait a bit for dynamic content
-      await page.waitForTimeout(this.config.delay);
+      // Wait longer for dynamic content on homepage
+      await page.waitForTimeout(5000);
+
+      // Scroll to bottom to trigger lazy loading
+      try {
+        await page.evaluate(async () => {
+          await new Promise<void>((resolve) => {
+            let totalHeight = 0;
+            const distance = 100;
+            const timer = setInterval(() => {
+              const scrollHeight = document.body.scrollHeight;
+              window.scrollBy(0, distance);
+              totalHeight += distance;
+
+              if (totalHeight >= scrollHeight) {
+                clearInterval(timer);
+                resolve();
+              }
+            }, 100);
+            
+            // Safety timeout
+            setTimeout(() => {
+              clearInterval(timer);
+              resolve();
+            }, 5000);
+          });
+        });
+        // Wait for content to settle after scroll
+        await page.waitForTimeout(2000);
+      } catch (e) {
+        logger.warn('Auto-scroll failed, proceeding with available content');
+      }
 
       const linkExtractor = new LinkExtractor(domain, this.config.excludedPatterns);
       const links = await linkExtractor.extractLinks(page, url);
@@ -71,7 +101,7 @@ export class PageVisitor {
       });
 
       // Wait for dynamic content
-      await page.waitForTimeout(this.config.delay);
+      await page.waitForTimeout(3000);
 
       return page;
     } catch (error) {

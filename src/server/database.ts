@@ -53,6 +53,18 @@ export interface IssueRecord {
   viewport: string;
 }
 
+export interface ScheduledTaskRecord {
+  id: number;
+  name: string;
+  domain: string;
+  cron_expression: string;
+  enabled: number;
+  last_run: number | null;
+  next_run: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
 export class DatabaseManager {
   private db: Database.Database;
   private dbPath: string;
@@ -155,11 +167,27 @@ export class DatabaseManager {
       )
     `);
 
+    // Scheduled tasks table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS scheduled_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        cron_expression TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        last_run INTEGER,
+        next_run INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
     // Create indexes
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_tests_timestamp ON tests(timestamp);
       CREATE INDEX IF NOT EXISTS idx_pages_test_id ON pages(test_id);
       CREATE INDEX IF NOT EXISTS idx_issues_page_id ON issues(page_id);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled);
     `);
   }
 
@@ -327,5 +355,71 @@ export class DatabaseManager {
 
   close(): void {
     this.db.close();
+  }
+
+  // Scheduled Task operations
+  createScheduledTask(name: string, domain: string, cronExpression: string): number {
+    const now = Date.now();
+    const stmt = this.db.prepare(`
+      INSERT INTO scheduled_tasks (name, domain, cron_expression, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, 1, ?, ?)
+    `);
+    const result = stmt.run(name, domain, cronExpression, now, now);
+    return result.lastInsertRowid as number;
+  }
+
+  getScheduledTasks(): ScheduledTaskRecord[] {
+    const stmt = this.db.prepare('SELECT * FROM scheduled_tasks ORDER BY created_at DESC');
+    return stmt.all() as ScheduledTaskRecord[];
+  }
+
+  getScheduledTask(id: number): ScheduledTaskRecord | undefined {
+    const stmt = this.db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?');
+    return stmt.get(id) as ScheduledTaskRecord | undefined;
+  }
+
+  updateScheduledTask(id: number, data: Partial<ScheduledTaskRecord>): void {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (data.name !== undefined) {
+      fields.push('name = ?');
+      values.push(data.name);
+    }
+    if (data.domain !== undefined) {
+      fields.push('domain = ?');
+      values.push(data.domain);
+    }
+    if (data.cron_expression !== undefined) {
+      fields.push('cron_expression = ?');
+      values.push(data.cron_expression);
+    }
+    if (data.enabled !== undefined) {
+      fields.push('enabled = ?');
+      values.push(data.enabled);
+    }
+    if (data.last_run !== undefined) {
+      fields.push('last_run = ?');
+      values.push(data.last_run);
+    }
+    if (data.next_run !== undefined) {
+      fields.push('next_run = ?');
+      values.push(data.next_run);
+    }
+
+    if (fields.length > 0) {
+      fields.push('updated_at = ?');
+      values.push(Date.now());
+      values.push(id);
+      const stmt = this.db.prepare(`
+        UPDATE scheduled_tasks SET ${fields.join(', ')} WHERE id = ?
+      `);
+      stmt.run(...values);
+    }
+  }
+
+  deleteScheduledTask(id: number): void {
+    const stmt = this.db.prepare('DELETE FROM scheduled_tasks WHERE id = ?');
+    stmt.run(id);
   }
 }

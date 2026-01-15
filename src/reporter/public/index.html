@@ -11,6 +11,10 @@
     <div class="header-content">
       <h1>🕷️ Enspider</h1>
       <p class="subtitle">Website Accessibility Monitor</p>
+      <nav class="header-nav">
+        <a href="/" class="nav-link" data-page="tests">Tests</a>
+        <a href="/scheduled" class="nav-link" data-page="scheduled">Scheduled Tasks</a>
+      </nav>
     </div>
     <div class="header-actions">
       <button id="startScanBtn" class="btn btn-primary">🚀 New Scan</button>
@@ -112,6 +116,63 @@
       </div>
     </div>
 
+    <!-- Scheduled Task Modal -->
+    <div id="scheduledTaskModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="scheduledTaskModalTitle">Add Scheduled Task</h2>
+          <button class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="scheduledTaskForm" style="display: flex; flex-direction: column; gap: 1rem;">
+            <div>
+              <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Task Name:</label>
+              <input type="text" id="taskName" required placeholder="e.g., Daily scan for en.guazi.com" style="width: 100%; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px;">
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Domain:</label>
+              <select id="taskDomain" required style="width: 100%; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px;">
+                <option value="">Select a domain</option>
+                <option value="en.guazi.com">en.guazi.com</option>
+                <option value="ar.guazi.com">ar.guazi.com</option>
+                <option value="fr.guazi.com">fr.guazi.com</option>
+                <option value="ru.guazi.com">ru.guazi.com</option>
+                <option value="es.guazi.com">es.guazi.com</option>
+              </select>
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Schedule (Crontab):</label>
+              <input type="text" id="taskCron" required placeholder="* * * * *" style="width: 100%; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px; font-family: monospace;">
+              <small style="color: #718096; display: block; margin-top: 0.25rem;">Format: minute hour day month weekday (e.g., 0 2 * * * for daily at 2 AM)</small>
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Quick Select:</label>
+              <select id="taskCronPreset" style="width: 100%; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px;">
+                <option value="">Custom...</option>
+                <option value="0 * * * *">Every hour</option>
+                <option value="0 0 * * *">Every day at midnight</option>
+                <option value="0 2 * * *">Every day at 2 AM</option>
+                <option value="0 9 * * 1-5">Every weekday at 9 AM</option>
+                <option value="0 9 * * 1">Every Monday at 9 AM</option>
+                <option value="0 0 1 * *">Monthly on 1st at midnight</option>
+              </select>
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Status:</label>
+              <label style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="taskEnabled" checked>
+                <span>Enabled</span>
+              </label>
+            </div>
+            <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+              <button type="submit" class="btn btn-primary">Save Task</button>
+              <button type="button" class="btn btn-secondary" onclick="closeScheduledTaskModal()">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
     <!-- Test History -->
     <section class="test-history">
       <h2>Test History</h2>
@@ -161,9 +222,24 @@
           <option value="list">List Pages</option>
           <option value="other">Other</option>
         </select>
+        <label style="margin-left: 1rem;">Filter by issues:</label>
+        <select id="issueFilter">
+          <option value="all">All</option>
+          <option value="has-issues">Has Issues Only</option>
+        </select>
       </div>
 
       <div id="pageResults" class="page-results"></div>
+    </section>
+
+    <!-- Scheduled Tasks Page -->
+    <section id="scheduledTasksPage" class="scheduled-tasks-page" style="display: none;">
+      <div class="details-header">
+        <h2>Scheduled Tasks</h2>
+        <button id="addScheduledTaskBtn" class="btn btn-primary">+ Add Task</button>
+      </div>
+
+      <div id="scheduledTasksList" class="scheduled-tasks-list">Loading...</div>
     </section>
   </main>
 

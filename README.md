@@ -134,6 +134,71 @@ enspider/
 └── logs/                     # Application logs
 ```
 
+## 部署与更新流程（腾讯云服务器）
+
+### 一次性服务器初始化
+
+1. 在服务器上创建裸仓库（只存 Git 数据）：
+
+```bash
+cd /root
+git init --bare enspider-bare.git
+```
+
+2. 在服务器上准备工作目录：
+
+```bash
+cd /root
+git clone /root/enspider-bare.git enspider
+cd /root/enspider
+```
+
+### 本地开发机：提交与推送
+
+在本地（能访问 GitHub 的机器）：
+
+```bash
+cd ~/guazi/work/enspider
+
+# 提交代码
+git add .
+git commit -m "your message"
+
+# 推送到 GitHub（可选）
+git push origin main
+
+# 添加服务器远程（只需一次）
+git remote add server root@<server-ip>:/root/enspider-bare.git
+
+# 推送到服务器裸仓库（关键）
+git push server main
+```
+
+### 服务器：更新代码并重启服务
+
+在服务器上：
+
+```bash
+cd /root/enspider
+
+# 确保 main 分支跟踪 origin/main（首次或分支异常时执行一次）
+git fetch origin
+git checkout -B main origin/main
+git branch --set-upstream-to=origin/main main
+
+# 之后每次更新只需：
+git pull
+./restart-enspider.sh
+```
+
+`restart-enspider.sh` 会自动执行：
+
+- 从裸仓库拉取最新代码
+- `npm install`
+- `npm run build`
+- 终止旧的 `node dist/server/index.js` 进程
+- 后台启动新的 `node dist/server/index.js`，日志输出到 `server.log`
+
 ## License
 
 MIT

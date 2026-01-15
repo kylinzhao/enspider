@@ -3,19 +3,23 @@ let currentTest = null;
 let currentPages = [];
 let progressEventSource = null;
 let progressStartTime = null;
+let currentScheduledTask = null; // For editing
 
 // DOM Elements
 const progressModal = document.getElementById('progressModal');
 
 // DOM Elements
 const scanModal = document.getElementById('scanModal');
+const scheduledTaskModal = document.getElementById('scheduledTaskModal');
 const startScanBtn = document.getElementById('startScanBtn');
 const confirmScanBtn = document.getElementById('confirmScanBtn');
 const refreshBtn = document.getElementById('refreshBtn');
 const testList = document.getElementById('testList');
 const testDetails = document.getElementById('testDetails');
+const scheduledTasksPage = document.getElementById('scheduledTasksPage');
 const backBtn = document.getElementById('backBtn');
 const pageTypeFilter = document.getElementById('pageTypeFilter');
+const issueFilter = document.getElementById('issueFilter');
 const pageResults = document.getElementById('pageResults');
 const lightbox = document.getElementById('lightbox');
 const lightboxClose = document.querySelector('.lightbox-close');
@@ -35,8 +39,40 @@ function setupEventListeners() {
     navigateTo('/');  // Use router navigation
   });
   pageTypeFilter.addEventListener('change', filterPages);
+  issueFilter.addEventListener('change', filterPages);
   deleteAllBtn.addEventListener('click', deleteAllTests);
   deleteTestBtn.addEventListener('click', deleteCurrentTest);
+
+  // Navigation links
+  document.querySelectorAll('.nav-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const page = e.target.getAttribute('data-page');
+      if (page === 'tests') {
+        navigateTo('/');
+      } else if (page === 'scheduled') {
+        navigateTo('/scheduled');
+      }
+    });
+  });
+
+  // Scheduled tasks
+  document.getElementById('addScheduledTaskBtn').addEventListener('click', openAddScheduledTaskModal);
+  document.getElementById('scheduledTaskForm').addEventListener('submit', saveScheduledTask);
+  document.getElementById('taskCronPreset').addEventListener('change', (e) => {
+    if (e.target.value) {
+      document.getElementById('taskCron').value = e.target.value;
+    }
+  });
+
+  // Modal close buttons
+  document.querySelectorAll('.close-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const modal = e.target.closest('.modal');
+      if (modal === scanModal) closeScanModal();
+      if (modal === scheduledTaskModal) closeScheduledTaskModal();
+    });
+  });
 
   // Select all domains functionality
   document.getElementById('selectAllDomains').addEventListener('change', (e) => {
@@ -46,10 +82,12 @@ function setupEventListeners() {
     });
   });
 
-  // Modal close
-  document.querySelector('.close-btn').addEventListener('click', closeScanModal);
+  // Modal close on outside click
   scanModal.addEventListener('click', (e) => {
     if (e.target === scanModal) closeScanModal();
+  });
+  scheduledTaskModal.addEventListener('click', (e) => {
+    if (e.target === scheduledTaskModal) closeScheduledTaskModal();
   });
 
   // Lightbox
@@ -229,8 +267,33 @@ async function viewTest(testId, updateUrl = true) {
 
 // Render pages
 function renderPages(pages) {
-  const filter = pageTypeFilter.value;
-  const filtered = filter === 'all' ? pages : pages.filter(p => p.page_type === filter);
+  const pageTypeFilterValue = pageTypeFilter.value;
+  const issueFilterValue = issueFilter.value;
+
+  let filtered = pages;
+
+  // Filter by page type
+  if (pageTypeFilterValue !== 'all') {
+    filtered = filtered.filter(p => p.page_type === pageTypeFilterValue);
+  }
+
+  // Filter by issues
+  if (issueFilterValue === 'has-issues') {
+    filtered = filtered.filter(p => {
+      const rawScreenshotIssues = page.screenshot_issues || {};
+      const qualityProblems = Object.entries(rawScreenshotIssues).reduce((acc, [viewport, issue]) => {
+        if (!issue) return acc;
+        const isProblem = issue.severity === 'error' || issue.severity === 'warning' ||
+                         (typeof issue.whitePercentage === 'number' && issue.whitePercentage >= 80);
+        if (isProblem) {
+          acc[viewport] = issue;
+        }
+        return acc;
+      }, {});
+      const hasScreenshotIssues = Object.keys(qualityProblems).length > 0;
+      return hasScreenshotIssues || (page.issues_count > 0);
+    });
+  }
 
   pageResults.innerHTML = filtered.map(page => {
     const rawScreenshotIssues = page.screenshot_issues || {};
@@ -649,11 +712,15 @@ async function deleteAllTests() {
 function initRouter() {
   // Handle browser back/forward buttons
   window.addEventListener('popstate', (event) => {
-    if (event.state && event.state.testId) {
-      // Restore test details view
-      restoreTestView(event.state.testId);
+    const path = window.location.pathname;
+
+    if (path.startsWith('/test/')) {
+      if (event.state && event.state.testId) {
+        restoreTestView(event.state.testId);
+      }
+    } else if (path === '/scheduled') {
+      showScheduledTasksPage();
     } else {
-      // Show test list
       showTestList();
     }
   });
@@ -665,6 +732,8 @@ function initRouter() {
     if (!isNaN(testId)) {
       restoreTestView(testId);
     }
+  } else if (path === '/scheduled') {
+    showScheduledTasksPage();
   }
 }
 
@@ -675,6 +744,9 @@ function navigateTo(path, state = null) {
   } else if (path.startsWith('/test/')) {
     const testId = parseInt(path.split('/')[2]);
     window.history.pushState({ testId }, '', path);
+  } else if (path === '/scheduled') {
+    window.history.pushState({}, '', '/scheduled');
+    showScheduledTasksPage();
   }
 }
 
@@ -857,3 +929,217 @@ setInterval(() => {
     loadTests();
   }
 }, 10000); // Refresh every 10 seconds
+
+// ===== Scheduled Tasks Functions =====
+
+// Show scheduled tasks page
+function showScheduledTasksPage() {
+  document.querySelector('.test-history').style.display = 'none';
+  testDetails.style.display = 'none';
+  scheduledTasksPage.style.display = 'block';
+  loadScheduledTasks();
+}
+
+// Load scheduled tasks
+async function loadScheduledTasks() {
+  try {
+    const response = await fetch('/api/scheduled-tasks');
+    const tasks = await response.json();
+
+    const container = document.getElementById('scheduledTasksList');
+
+    if (tasks.length === 0) {
+      container.innerHTML = '<p class="loading">No scheduled tasks configured. Click "Add Task" to create one.</p>';
+      return;
+    }
+
+    container.innerHTML = tasks.map(task => renderScheduledTaskCard(task)).join('');
+  } catch (error) {
+    console.error('Error loading scheduled tasks:', error);
+    document.getElementById('scheduledTasksList').innerHTML = `<p class="loading">Error loading tasks: ${error.message}</p>`;
+  }
+}
+
+// Render a single scheduled task card
+function renderScheduledTaskCard(task) {
+  const enabledClass = task.enabled ? 'task-enabled' : 'task-disabled';
+  const enabledText = task.enabled ? '✓ Enabled' : '✗ Disabled';
+  const enabledColor = task.enabled ? '#48bb78' : '#a0aec0';
+
+  const lastRun = task.last_run ? new Date(task.last_run).toLocaleString() : 'Never';
+  const created = new Date(task.created_at).toLocaleString();
+
+  return `
+    <div class="scheduled-task-card ${enabledClass}">
+      <div class="scheduled-task-header">
+        <div class="scheduled-task-name">${task.name}</div>
+        <div class="scheduled-task-status" style="color: ${enabledColor};">${enabledText}</div>
+      </div>
+      <div class="scheduled-task-body">
+        <div class="scheduled-task-info">
+          <div><strong>Domain:</strong> ${task.domain}</div>
+          <div><strong>Cron:</strong> <code style="background: #edf2f7; padding: 2px 6px; border-radius: 3px;">${task.cron_expression}</code></div>
+          <div><strong>Last Run:</strong> ${lastRun}</div>
+          <div><strong>Created:</strong> ${created}</div>
+        </div>
+        <div class="scheduled-task-actions">
+          <button class="btn btn-sm btn-primary" onclick="runScheduledTask(${task.id})">▶ Run Now</button>
+          <button class="btn btn-sm btn-secondary" onclick="editScheduledTask(${task.id})">✎ Edit</button>
+          <button class="btn btn-sm ${task.enabled ? 'btn-warning' : 'btn-success'}" onclick="toggleScheduledTask(${task.id}, ${task.enabled})">
+            ${task.enabled ? '⏸ Disable' : '▶ Enable'}
+          </button>
+          <button class="btn btn-sm btn-danger" onclick="deleteScheduledTask(${task.id})">🗑 Delete</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Open add scheduled task modal
+function openAddScheduledTaskModal() {
+  currentScheduledTask = null;
+  document.getElementById('scheduledTaskModalTitle').textContent = 'Add Scheduled Task';
+  document.getElementById('scheduledTaskForm').reset();
+  document.getElementById('taskEnabled').checked = true;
+  scheduledTaskModal.classList.add('active');
+}
+
+// Open edit scheduled task modal
+async function editScheduledTask(taskId) {
+  try {
+    const response = await fetch(`/api/scheduled-tasks/${taskId}`);
+    const task = await response.json();
+
+    currentScheduledTask = task;
+    document.getElementById('scheduledTaskModalTitle').textContent = 'Edit Scheduled Task';
+    document.getElementById('taskName').value = task.name;
+    document.getElementById('taskDomain').value = task.domain;
+    document.getElementById('taskCron').value = task.cron_expression;
+    document.getElementById('taskEnabled').checked = task.enabled === 1;
+
+    scheduledTaskModal.classList.add('active');
+  } catch (error) {
+    alert('Error loading task: ' + error.message);
+  }
+}
+
+// Close scheduled task modal
+function closeScheduledTaskModal() {
+  scheduledTaskModal.classList.remove('active');
+  currentScheduledTask = null;
+  document.getElementById('scheduledTaskForm').reset();
+}
+
+// Save scheduled task (create or update)
+async function saveScheduledTask(e) {
+  e.preventDefault();
+
+  const name = document.getElementById('taskName').value;
+  const domain = document.getElementById('taskDomain').value;
+  const cronExpression = document.getElementById('taskCron').value;
+  const enabled = document.getElementById('taskEnabled').checked;
+
+  try {
+    let response;
+    if (currentScheduledTask) {
+      // Update existing task
+      response = await fetch(`/api/scheduled-tasks/${currentScheduledTask.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          domain,
+          cron_expression: cronExpression,
+          enabled
+        })
+      });
+    } else {
+      // Create new task
+      response = await fetch('/api/scheduled-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          domain,
+          cron_expression: cronExpression
+        })
+      });
+    }
+
+    if (!response.ok) {
+      const error = await response.json();
+      alert('Failed to save task: ' + (error.error || 'Unknown error'));
+      return;
+    }
+
+    closeScheduledTaskModal();
+    loadScheduledTasks();
+  } catch (error) {
+    alert('Error saving task: ' + error.message);
+  }
+}
+
+// Run scheduled task manually
+async function runScheduledTask(taskId) {
+  try {
+    const response = await fetch(`/api/scheduled-tasks/${taskId}/run`, {
+      method: 'POST'
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      alert('Failed to run task: ' + (error.error || 'Unknown error'));
+      return;
+    }
+
+    alert('Scan started! Check the Tests page for progress.');
+  } catch (error) {
+    alert('Error running task: ' + error.message);
+  }
+}
+
+// Toggle scheduled task enabled/disabled
+async function toggleScheduledTask(taskId, currentEnabled) {
+  try {
+    const response = await fetch(`/api/scheduled-tasks/${taskId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: !currentEnabled
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      alert('Failed to update task: ' + (error.error || 'Unknown error'));
+      return;
+    }
+
+    loadScheduledTasks();
+  } catch (error) {
+    alert('Error updating task: ' + error.message);
+  }
+}
+
+// Delete scheduled task
+async function deleteScheduledTask(taskId) {
+  if (!confirm('Are you sure you want to delete this scheduled task?')) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/scheduled-tasks/${taskId}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      alert('Failed to delete task: ' + (error.error || 'Unknown error'));
+      return;
+    }
+
+    loadScheduledTasks();
+  } catch (error) {
+    alert('Error deleting task: ' + error.message);
+  }
+}

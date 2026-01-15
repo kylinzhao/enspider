@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { DatabaseManager } from './database.js';
 import { runScan } from './scanner-service.js';
 import { progressManager } from './progress-manager.js';
+import { createScheduler } from './scheduler-service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,10 +13,26 @@ const __dirname = path.dirname(__filename);
 export function createWebServer(db: DatabaseManager, port: number = 3000): express.Application {
   const app = express();
 
+  // Initialize scheduler
+  const scheduler = createScheduler(db);
+  scheduler.initialize();
+
   // Middleware
   app.use(cors());
   app.use(express.json());
-  app.use(express.static(path.join(__dirname, '../reporter/public')));
+
+  // Request logging middleware
+  app.use((req, res, next) => {
+    console.log(`[REQUEST] ${req.method} ${req.url}`);
+    next();
+  });
+
+  // Test route
+  app.get('/api/test', (req, res) => {
+    console.log('[API] GET /api/test called');
+    res.json({ message: 'Test route works!' });
+  });
+
   app.use('/output', express.static(path.join(process.cwd(), 'output')));
 
   // API Routes
@@ -159,6 +176,150 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
   });
 
   /**
+   * GET /api/scheduled-tasks - Get all scheduled tasks
+   */
+  app.get('/api/scheduled-tasks', (req, res) => {
+    console.log('[API] GET /api/scheduled-tasks called');
+    try {
+      const tasks = db.getScheduledTasks();
+      console.log('[API] Returning tasks:', tasks.length);
+      res.json(tasks);
+    } catch (error) {
+      console.error('[API] Error fetching scheduled tasks:', error);
+      res.status(500).json({ error: 'Failed to fetch scheduled tasks' });
+    }
+  });
+
+  /**
+   * GET /api/scheduled-tasks/:id - Get a scheduled task by ID
+   */
+  app.get('/api/scheduled-tasks/:id', (req, res) => {
+    try {
+      const taskId = parseInt(req.params.id);
+      const task = db.getScheduledTask(taskId);
+
+      if (!task) {
+        res.status(404).json({ error: 'Scheduled task not found' });
+        return;
+      }
+
+      res.json(task);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch scheduled task' });
+    }
+  });
+
+  /**
+   * POST /api/scheduled-tasks - Create a new scheduled task
+   */
+  app.post('/api/scheduled-tasks', (req, res) => {
+    try {
+      const { name, domain, cron_expression } = req.body;
+
+      if (!name || !domain || !cron_expression) {
+        res.status(400).json({ error: 'Name, domain, and cron_expression are required' });
+        return;
+      }
+
+      const taskId = db.createScheduledTask(name, domain, cron_expression);
+      const task = db.getScheduledTask(taskId);
+
+      // Schedule the task
+      if (task) {
+        scheduler.addTask(task);
+      }
+
+      res.status(201).json(task);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to create scheduled task' });
+    }
+  });
+
+  /**
+   * PUT /api/scheduled-tasks/:id - Update a scheduled task
+   */
+  app.put('/api/scheduled-tasks/:id', (req, res) => {
+    try {
+      const taskId = parseInt(req.params.id);
+      const { name, domain, cron_expression, enabled } = req.body;
+
+      const existingTask = db.getScheduledTask(taskId);
+      if (!existingTask) {
+        res.status(404).json({ error: 'Scheduled task not found' });
+        return;
+      }
+
+      // Update task in database
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name;
+      if (domain !== undefined) updateData.domain = domain;
+      if (cron_expression !== undefined) updateData.cron_expression = cron_expression;
+      if (enabled !== undefined) updateData.enabled = enabled ? 1 : 0;
+
+      db.updateScheduledTask(taskId, updateData);
+      const updatedTask = db.getScheduledTask(taskId);
+
+      // Update scheduler
+      if (updatedTask) {
+        scheduler.updateTask(updatedTask);
+      }
+
+      res.json(updatedTask);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update scheduled task' });
+    }
+  });
+
+  /**
+   * DELETE /api/scheduled-tasks/:id - Delete a scheduled task
+   */
+  app.delete('/api/scheduled-tasks/:id', (req, res) => {
+    try {
+      const taskId = parseInt(req.params.id);
+
+      const task = db.getScheduledTask(taskId);
+      if (!task) {
+        res.status(404).json({ error: 'Scheduled task not found' });
+        return;
+      }
+
+      // Unschedule the task
+      scheduler.deleteTask(taskId);
+
+      // Delete from database
+      db.deleteScheduledTask(taskId);
+
+      res.json({ message: 'Scheduled task deleted successfully', taskId });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to delete scheduled task' });
+    }
+  });
+
+  /**
+   * POST /api/scheduled-tasks/:id/run - Manually trigger a scheduled task
+   */
+  app.post('/api/scheduled-tasks/:id/run', async (req, res) => {
+    try {
+      const taskId = parseInt(req.params.id);
+      const task = db.getScheduledTask(taskId);
+
+      if (!task) {
+        res.status(404).json({ error: 'Scheduled task not found' });
+        return;
+      }
+
+      // Start scan asynchronously
+      runScan(task.domain, db).catch(error => {
+        console.error('Scheduled scan failed:', error);
+      });
+
+      res.json({ message: 'Scan started', domain: task.domain });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to trigger scheduled task' });
+    }
+  });
+
+  /**
    * GET /api/scan/progress/:id - SSE endpoint for real-time progress
    */
   app.get('/api/scan/progress/:id', (req, res) => {
@@ -201,6 +362,9 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
       console.log(`[SSE] Client disconnected from test ${testId}`);
     });
   });
+
+  // Serve frontend static files
+  app.use(express.static(path.join(__dirname, '../reporter/public')));
 
   // Serve frontend for all other routes
   app.use((req, res) => {

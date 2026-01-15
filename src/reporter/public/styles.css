@@ -33,6 +33,31 @@ header {
   opacity: 0.9;
 }
 
+.header-nav {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.nav-link {
+  color: rgba(255, 255, 255, 0.8);
+  text-decoration: none;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.nav-link:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.nav-link.active {
+  color: white;
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .header-actions {
   display: flex;
   gap: 1rem;
@@ -1068,4 +1093,110 @@ main {
   .test-item-stat {
     min-width: 70px;
   }
+}
+
+/* Scheduled Tasks Page */
+.scheduled-tasks-page {
+  animation: fadeIn 0.3s;
+}
+
+.scheduled-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.scheduled-task-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.scheduled-task-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+.scheduled-task-card.task-enabled {
+  border-left: 5px solid #48bb78;
+}
+
+.scheduled-task-card.task-disabled {
+  border-left: 5px solid #a0aec0;
+  opacity: 0.8;
+}
+
+.scheduled-task-header {
+  background: #f7fafc;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.scheduled-task-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.scheduled-task-status {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.scheduled-task-body {
+  padding: 1.5rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.scheduled-task-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.scheduled-task-info div {
+  font-size: 0.875rem;
+}
+
+.scheduled-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.btn-sm {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  border-radius: 6px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-warning {
+  background: #ed8936;
+  color: white;
+}
+
+.btn-warning:hover {
+  background: #dd6b20;
+  transform: translateY(-1px);
+}
+
+.btn-success {
+  background: #48bb78;
+  color: white;
+}
+
+.btn-success:hover {
+  background: #38a169;
+  transform: translateY(-1px);
 }

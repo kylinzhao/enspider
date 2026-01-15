@@ -26,7 +26,11 @@
       "Bash(timeout 120 node:*)",
       "Bash(tee:*)",
       "Bash(node:*)",
-      "Bash(grep \"Screenshot captured\" echo \"\" echo \"Check for errors:\" tail -50 /tmp/scan-serial-test.log)"
+      "Bash(grep \"Screenshot captured\" echo \"\" echo \"Check for errors:\" tail -50 /tmp/scan-serial-test.log)",
+      "Bash(git checkout:*)",
+      "Bash(npm run dev:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
