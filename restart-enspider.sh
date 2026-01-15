@@ -23,6 +23,5 @@ if [ -n "$PIDS" ]; then
   sleep 2
 fi
 
-nohup node dist/server/index.js > server.log 2>&1 &
+PW_TEST_SCREENSHOT_NO_FONTS_READY=1 nohup node dist/server/index.js > server.log 2>&1 &
 echo "Server restarted with PID $!"
-
