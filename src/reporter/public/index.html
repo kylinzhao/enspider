@@ -17,6 +17,7 @@
       </nav>
     </div>
     <div class="header-actions">
+      <button id="configBtn" class="btn btn-secondary">⚙️ Config</button>
       <button id="startScanBtn" class="btn btn-primary">🚀 New Scan</button>
       <button id="refreshBtn" class="btn btn-secondary">🔄 Refresh</button>
       <button id="deleteAllBtn" class="btn btn-danger">🗑️ Delete All</button>
@@ -114,10 +115,15 @@
               <span style="font-weight: 600;">Select All</span>
             </label>
           </div>
-          <div style="margin-bottom: 1rem;">
-            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Custom URLs (optional):</label>
-            <textarea id="customUrlsInput" placeholder="Enter custom URLs to test (one per line)&#10;Example:&#10;/products/123&#10;/used-cars/bmw-3-series" style="width: 100%; min-height: 100px; padding: 0.5rem; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.875rem; font-family: monospace;"></textarea>
-            <small style="color: #718096; display: block; margin-top: 0.25rem;">Custom URLs are not subject to the 10-page limit. Leave empty to only use auto-discovered pages.</small>
+          <div style="margin-bottom: 1rem; padding: 1rem; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+              <span style="font-size: 1.2rem;">ℹ️</span>
+              <strong style="color: #667eea;">Global Custom URLs</strong>
+            </div>
+            <p style="margin: 0; font-size: 0.875rem; color: #718096;">
+              Custom URLs configured in <strong>⚙️ Config</strong> will be automatically included in all scans.
+              <a href="#" onclick="openConfigModal(); return false;" style="color: #667eea; text-decoration: underline;">Click here to configure</a>
+            </p>
           </div>
           <button id="confirmScanBtn" class="btn btn-primary">Start Scan</button>
         </div>
@@ -152,6 +158,10 @@
               <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Schedule (Crontab):</label>
               <input type="text" id="taskCron" required placeholder="* * * * *" style="width: 100%; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px; font-family: monospace;">
               <small style="color: #718096; display: block; margin-top: 0.25rem;">Format: minute hour day month weekday (e.g., 0 2 * * * for daily at 2 AM)</small>
+              <div id="cronExplanation" style="margin-top: 0.5rem; padding: 0.75rem; background: #f7fafc; border-radius: 6px; font-size: 0.875rem; display: none;">
+                <div style="color: #4a5568; margin-bottom: 0.25rem;">💡 <strong>Schedule:</strong> <span id="cronExplanationText"></span></div>
+                <div style="color: #667eea; font-weight: 500;">⏰ <span id="cronNextRun"></span></div>
+              </div>
             </div>
             <div>
               <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Quick Select:</label>
@@ -171,11 +181,6 @@
                 <input type="checkbox" id="taskEnabled" checked>
                 <span>Enabled</span>
               </label>
-            </div>
-            <div>
-              <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Custom URLs (optional):</label>
-              <textarea id="taskCustomUrls" placeholder="Enter custom URLs to test (one per line)&#10;Example:&#10;/products/123&#10;/used-cars/bmw-3-series" style="width: 100%; min-height: 100px; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.875rem; font-family: monospace;"></textarea>
-              <small style="color: #718096; display: block; margin-top: 0.25rem;">Custom URLs are not subject to the 10-page limit. Leave empty to only use auto-discovered pages.</small>
             </div>
             <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
               <button type="submit" class="btn btn-primary">Save Task</button>
@@ -244,6 +249,32 @@
 
       <div id="pageResults" class="page-results"></div>
     </section>
+
+    <!-- Global Config Modal -->
+    <div id="configModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>⚙️ Global Configuration</h2>
+          <button class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="configForm" style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <div>
+              <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Custom URLs</label>
+              <textarea id="configCustomUrls" placeholder="Enter custom URLs to test (one per line)&#10;Example:&#10;/products/123&#10;/used-cars/bmw-3-series" style="width: 100%; min-height: 200px; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.875rem; font-family: monospace; line-height: 1.6;"></textarea>
+              <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                <small style="color: #718096; flex: 1;">💡 These URLs will be automatically included in ALL scans (manual and scheduled).</small>
+              </div>
+              <small style="color: #48bb78; font-weight: 600;">✓ Not subject to the 10-page limit - all custom URLs will be tested</small>
+            </div>
+            <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+              <button type="submit" class="btn btn-primary">💾 Save Configuration</button>
+              <button type="button" class="btn btn-secondary" onclick="closeConfigModal()">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
 
     <!-- Scheduled Tasks Page -->
     <section id="scheduledTasksPage" class="scheduled-tasks-page" style="display: none;">

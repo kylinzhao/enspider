@@ -39,6 +39,7 @@ export interface Notification {
   message: string;
   timestamp: number;
   data?: {
+    taskId: number;
     totalPages: number;
     totalIssues: number;
     duration: number;
@@ -185,13 +186,14 @@ export class ProgressManager extends EventEmitter {
       type: success ? 'scan_completed' : 'scan_failed',
       testId,
       domain: progress.domain,
-      title: success ? `✅ Scan Completed - ${progress.domain}` : `❌ Scan Failed - ${progress.domain}`,
+      title: success ? `✅ Task #${testId} - ${progress.domain}` : `❌ Task #${testId} - ${progress.domain}`,
       message: success
         ? `Successfully tested ${progress.totalPages} pages with ${progress.issues.total} issues found.`
         : `Scan for ${progress.domain} failed. Please check the logs for details.`,
       timestamp: Date.now(),
       data: success
         ? {
+            taskId: testId,
             totalPages: progress.totalPages,
             totalIssues: progress.issues.total,
             duration,

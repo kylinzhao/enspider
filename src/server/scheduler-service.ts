@@ -91,18 +91,8 @@ class SchedulerService {
         last_run: Date.now()
       });
 
-      // Parse custom URLs if present
-      let customUrls: string[] = [];
-      if (task.custom_urls) {
-        try {
-          customUrls = JSON.parse(task.custom_urls);
-        } catch (error) {
-          console.error(`[Scheduler] Failed to parse custom_urls for task ${taskId}:`, error);
-        }
-      }
-
-      // Run the scan with custom URLs
-      await runScan(domain, this.db, { customUrls });
+      // Run the scan (will use global custom URLs from database)
+      await runScan(domain, this.db);
 
       console.log(`[Scheduler] Task ${taskId} completed successfully`);
     } catch (error) {

@@ -214,14 +214,14 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
    */
   app.post('/api/scheduled-tasks', (req, res) => {
     try {
-      const { name, domain, cron_expression, custom_urls } = req.body;
+      const { name, domain, cron_expression } = req.body;
 
       if (!name || !domain || !cron_expression) {
         res.status(400).json({ error: 'Name, domain, and cron_expression are required' });
         return;
       }
 
-      const taskId = db.createScheduledTask(name, domain, cron_expression, custom_urls);
+      const taskId = db.createScheduledTask(name, domain, cron_expression);
       const task = db.getScheduledTask(taskId);
 
       // Schedule the task
@@ -241,7 +241,7 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
   app.put('/api/scheduled-tasks/:id', (req, res) => {
     try {
       const taskId = parseInt(req.params.id);
-      const { name, domain, cron_expression, enabled, custom_urls } = req.body;
+      const { name, domain, cron_expression, enabled } = req.body;
 
       const existingTask = db.getScheduledTask(taskId);
       if (!existingTask) {
@@ -255,7 +255,6 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
       if (domain !== undefined) updateData.domain = domain;
       if (cron_expression !== undefined) updateData.cron_expression = cron_expression;
       if (enabled !== undefined) updateData.enabled = enabled ? 1 : 0;
-      if (custom_urls !== undefined) updateData.custom_urls_array = custom_urls;
 
       db.updateScheduledTask(taskId, updateData);
       const updatedTask = db.getScheduledTask(taskId);
@@ -425,6 +424,37 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
       res.json({ message: 'Notifications cleared successfully' });
     } catch (error) {
       res.status(500).json({ error: 'Failed to clear notifications' });
+    }
+  });
+
+  /**
+   * GET /api/config/custom-urls - Get custom URLs from global config
+   */
+  app.get('/api/config/custom-urls', (req, res) => {
+    try {
+      const customUrls = db.getCustomUrls();
+      res.json(customUrls);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch custom URLs' });
+    }
+  });
+
+  /**
+   * PUT /api/config/custom-urls - Update custom URLs in global config
+   */
+  app.put('/api/config/custom-urls', (req, res) => {
+    try {
+      const { custom_urls } = req.body;
+
+      if (!Array.isArray(custom_urls)) {
+        res.status(400).json({ error: 'custom_urls must be an array' });
+        return;
+      }
+
+      db.setCustomUrls(custom_urls);
+      res.json({ message: 'Custom URLs updated successfully', custom_urls });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update custom URLs' });
     }
   });
 

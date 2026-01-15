@@ -61,8 +61,14 @@ export interface ScheduledTaskRecord {
   enabled: number;
   last_run: number | null;
   next_run: number | null;
-  custom_urls: string | null;
   created_at: number;
+  updated_at: number;
+}
+
+export interface GlobalConfigRecord {
+  id: number;
+  key: string;
+  value: string;
   updated_at: number;
 }
 
@@ -178,22 +184,26 @@ export class DatabaseManager {
         enabled INTEGER DEFAULT 1,
         last_run INTEGER,
         next_run INTEGER,
-        custom_urls TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
     `);
 
-    // Add custom_urls column if not exists
-    try {
-      const columns = this.db.pragma('table_info(scheduled_tasks)') as any[];
-      const hasCustomUrls = columns.some((col) => col.name === 'custom_urls');
+    // Global configuration table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS global_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT NOT NULL UNIQUE,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
 
-      if (!hasCustomUrls) {
-        this.db.exec('ALTER TABLE scheduled_tasks ADD COLUMN custom_urls TEXT');
-      }
-    } catch (error) {
-      // Column might already exist or table doesn't exist yet
+    // Insert default custom URLs config if not exists
+    const existingConfig = this.db.prepare('SELECT * FROM global_config WHERE key = ?').get('custom_urls');
+    if (!existingConfig) {
+      this.db.prepare('INSERT INTO global_config (key, value, updated_at) VALUES (?, ?, ?)')
+        .run('custom_urls', '[]', Date.now());
     }
 
     // Create indexes
@@ -372,14 +382,13 @@ export class DatabaseManager {
   }
 
   // Scheduled Task operations
-  createScheduledTask(name: string, domain: string, cronExpression: string, customUrls?: string[]): number {
+  createScheduledTask(name: string, domain: string, cronExpression: string): number {
     const now = Date.now();
-    const customUrlsJson = customUrls && customUrls.length > 0 ? JSON.stringify(customUrls) : null;
     const stmt = this.db.prepare(`
-      INSERT INTO scheduled_tasks (name, domain, cron_expression, enabled, custom_urls, created_at, updated_at)
-      VALUES (?, ?, ?, 1, ?, ?, ?)
+      INSERT INTO scheduled_tasks (name, domain, cron_expression, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, 1, ?, ?)
     `);
-    const result = stmt.run(name, domain, cronExpression, customUrlsJson, now, now);
+    const result = stmt.run(name, domain, cronExpression, now, now);
     return result.lastInsertRowid as number;
   }
 
@@ -393,7 +402,7 @@ export class DatabaseManager {
     return stmt.get(id) as ScheduledTaskRecord | undefined;
   }
 
-  updateScheduledTask(id: number, data: Partial<ScheduledTaskRecord & { custom_urls_array?: string[] }>): void {
+  updateScheduledTask(id: number, data: Partial<ScheduledTaskRecord>): void {
     const fields: string[] = [];
     const values: any[] = [];
 
@@ -421,16 +430,6 @@ export class DatabaseManager {
       fields.push('next_run = ?');
       values.push(data.next_run);
     }
-    if (data.custom_urls !== undefined) {
-      fields.push('custom_urls = ?');
-      values.push(data.custom_urls);
-    } else if (data.custom_urls_array !== undefined) {
-      fields.push('custom_urls = ?');
-      const customUrlsJson = data.custom_urls_array && data.custom_urls_array.length > 0
-        ? JSON.stringify(data.custom_urls_array)
-        : null;
-      values.push(customUrlsJson);
-    }
 
     if (fields.length > 0) {
       fields.push('updated_at = ?');
@@ -446,5 +445,37 @@ export class DatabaseManager {
   deleteScheduledTask(id: number): void {
     const stmt = this.db.prepare('DELETE FROM scheduled_tasks WHERE id = ?');
     stmt.run(id);
+  }
+
+  // Global Config operations
+  getGlobalConfig(key: string): string | null {
+    const stmt = this.db.prepare('SELECT value FROM global_config WHERE key = ?');
+    const result = stmt.get(key) as any;
+    return result ? result.value : null;
+  }
+
+  setGlobalConfig(key: string, value: string): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO global_config (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = excluded.updated_at
+    `);
+    stmt.run(key, value, Date.now());
+  }
+
+  getCustomUrls(): string[] {
+    const value = this.getGlobalConfig('custom_urls');
+    if (!value) return [];
+    try {
+      return JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+
+  setCustomUrls(urls: string[]): void {
+    this.setGlobalConfig('custom_urls', JSON.stringify(urls));
   }
 }

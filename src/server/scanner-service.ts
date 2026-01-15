@@ -20,6 +20,14 @@ export interface ScanOptions {
 }
 
 export async function runScan(domain: string, db: DatabaseManager, options?: ScanOptions): Promise<void> {
+  // Get custom URLs from global config if not provided in options
+  const customUrlsFromOptions = options?.customUrls || [];
+  const customUrlsFromGlobal = db.getCustomUrls() || [];
+  const allCustomUrls = [...new Set([...customUrlsFromOptions, ...customUrlsFromGlobal])]; // Merge and deduplicate
+
+  const mergedOptions: ScanOptions = {
+    customUrls: allCustomUrls
+  };
   const progress = new ProgressTracker(`SCAN ${domain}`);
   const startTime = Date.now();
 
@@ -145,7 +153,7 @@ export async function runScan(domain: string, db: DatabaseManager, options?: Sca
       progress.info(`  → Sampling ${sampledLinks.length} auto-crawled pages for analysis (${listPagesToAdd} list, ${detailPagesToAdd} detail, ${sampledLinks.length - listPagesToAdd - detailPagesToAdd} other)`);
 
       // Add custom URLs if provided (not subject to the 10-page limit)
-      const customUrls = options?.customUrls || [];
+      const customUrls = mergedOptions.customUrls || [];
       if (customUrls.length > 0) {
         progress.info(`  → Adding ${customUrls.length} custom URLs (not subject to sampling limit)`);
         progressManager.addLog(testId, `Adding ${customUrls.length} custom URLs`);

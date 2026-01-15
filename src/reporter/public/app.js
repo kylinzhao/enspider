@@ -10,8 +10,10 @@ const progressModal = document.getElementById('progressModal');
 
 // DOM Elements
 const scanModal = document.getElementById('scanModal');
+const configModal = document.getElementById('configModal');
 const scheduledTaskModal = document.getElementById('scheduledTaskModal');
 const startScanBtn = document.getElementById('startScanBtn');
+const configBtn = document.getElementById('configBtn');
 const confirmScanBtn = document.getElementById('confirmScanBtn');
 const refreshBtn = document.getElementById('refreshBtn');
 const testList = document.getElementById('testList');
@@ -34,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function setupEventListeners() {
   startScanBtn.addEventListener('click', openScanModal);
+  configBtn.addEventListener('click', openConfigModal);
   confirmScanBtn.addEventListener('click', startScan);
   refreshBtn.addEventListener('click', loadTests);
   backBtn.addEventListener('click', () => {
@@ -60,11 +63,19 @@ function setupEventListeners() {
   // Scheduled tasks
   document.getElementById('addScheduledTaskBtn').addEventListener('click', openAddScheduledTaskModal);
   document.getElementById('scheduledTaskForm').addEventListener('submit', saveScheduledTask);
+
+  // Config
+  document.getElementById('configForm').addEventListener('submit', saveGlobalConfig);
   document.getElementById('taskCronPreset').addEventListener('change', (e) => {
     if (e.target.value) {
       document.getElementById('taskCron').value = e.target.value;
+      updateCronExplanation();
     }
   });
+
+  // Real-time cron explanation
+  const taskCronInput = document.getElementById('taskCron');
+  taskCronInput.addEventListener('input', updateCronExplanation);
 
   // Modal close buttons
   document.querySelectorAll('.close-btn').forEach(btn => {
@@ -178,13 +189,26 @@ function groupTestsByDate(tests) {
 
 // Render a single test card (list item style)
 function renderTestCard(test) {
-  const date = new Date(test.timestamp);
-  const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const startDate = new Date(test.timestamp);
+  const startTimeStr = startDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const startDateStr = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  // Calculate end time
+  let endTimeStr = 'N/A';
+  let endTimeDisplay = 'In Progress';
+  if (test.status !== 'running' && test.duration_ms) {
+    const endDate = new Date(test.timestamp + test.duration_ms);
+    endTimeStr = endDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    endTimeDisplay = endTimeStr;
+  }
 
   return `
     <div class="test-list-item ${test.status === 'running' ? 'test-item-running' : ''}" onclick="viewTest(${test.id})">
       <div class="test-item-main">
-        <div class="test-item-domain">${test.domain}</div>
+        <div class="test-item-domain">
+          <span style="color: #667eea; font-weight: 600; font-size: 0.75rem; background: #e6e6ff; padding: 2px 6px; border-radius: 4px; margin-right: 0.5rem;">#${test.id}</span>
+          ${test.domain}
+        </div>
         <div class="test-item-status ${test.status}">${test.status}</div>
       </div>
       <div class="test-item-stats">
@@ -204,7 +228,8 @@ function renderTestCard(test) {
         </div>
       </div>
       <div class="test-item-time">
-        ${timeStr}
+        <div style="font-size: 0.75rem; color: #a0aec0; margin-bottom: 0.125rem;">${startDateStr}</div>
+        <div style="font-weight: 500;">${startTimeStr} → ${endTimeDisplay}</div>
       </div>
       <div class="test-item-actions">
         ${test.status === 'running' ? `
@@ -570,13 +595,6 @@ async function startScan() {
     return;
   }
 
-  // Get custom URLs
-  const customUrlsInput = document.getElementById('customUrlsInput');
-  const customUrlsText = customUrlsInput.value.trim();
-  const customUrls = customUrlsText
-    ? customUrlsText.split('\n').map(url => url.trim()).filter(url => url.length > 0)
-    : [];
-
   try {
     closeScanModal();
 
@@ -586,7 +604,7 @@ async function startScan() {
         fetch('/api/scan/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ domain, custom_urls: customUrls })
+          body: JSON.stringify({ domain })
         })
       )
     );
@@ -940,6 +958,210 @@ setInterval(() => {
 
 // ===== Scheduled Tasks Functions =====
 
+// Cron explanation and next run time functions
+function explainCron(cronExpression) {
+  const parts = cronExpression.trim().split(/\s+/);
+  if (parts.length !== 5) {
+    return { explanation: 'Invalid cron format', nextRun: null };
+  }
+
+  const [minute, hour, day, month, weekday] = parts;
+
+  let explanation = [];
+
+  // Explain minute
+  if (minute === '*') {
+    explanation.push('Every minute');
+  } else if (minute.includes('/')) {
+    const interval = minute.split('/')[1];
+    explanation.push(`Every ${interval} minutes`);
+  } else if (minute.includes(',')) {
+    explanation.push(`At minutes ${minute.replace(/,/g, ', ')}`);
+  } else {
+    explanation.push(`At minute ${minute}`);
+  }
+
+  // Explain hour
+  if (hour === '*') {
+    explanation.push('of every hour');
+  } else if (hour.includes('/')) {
+    const interval = hour.split('/')[1];
+    explanation.push(`every ${interval} hours`);
+  } else if (hour.includes(',')) {
+    explanation.push(`at hours ${hour.replace(/,/g, ', ')}`);
+  } else {
+    explanation.push(`past hour ${hour}`);
+  }
+
+  // Explain day
+  if (day !== '*') {
+    if (day.includes('/')) {
+      const interval = day.split('/')[1];
+      explanation.push(`every ${interval} days`);
+    } else {
+      explanation.push(`on day ${day}`);
+    }
+  }
+
+  // Explain month
+  if (month !== '*') {
+    if (month.includes('/')) {
+      const interval = month.split('/')[1];
+      explanation.push(`every ${interval} months`);
+    } else if (month.includes(',')) {
+      explanation.push(`in months ${month.replace(/,/g, ', ')}`);
+    } else {
+      explanation.push(`in month ${month}`);
+    }
+  }
+
+  // Explain weekday
+  if (weekday !== '*') {
+    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    if (weekday.includes('-')) {
+      const [start, end] = weekday.split('-');
+      explanation.push(`from ${weekdays[start]} to ${weekdays[end]}`);
+    } else if (weekday.includes(',')) {
+      const days = weekday.split(',').map(d => weekdays[d]).join(', ');
+      explanation.push(`on ${days}`);
+    } else {
+      explanation.push(`on ${weekdays[weekday]}`);
+    }
+  }
+
+  return {
+    explanation: explanation.join(' '),
+    nextRun: calculateNextRun(cronExpression)
+  };
+}
+
+function calculateNextRun(cronExpression) {
+  const parts = cronExpression.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+
+  const [minute, hour, day, month, weekday] = parts;
+  const now = new Date();
+  const next = new Date(now);
+
+  // Simple implementation: find next matching time
+  // This is a basic implementation - for production use a library like cron-parser would be better
+
+  // Set to next minute
+  next.setSeconds(0, 0);
+  next.setMinutes(next.getMinutes() + 1);
+
+  // Try to find a match (simplified - checks up to 1 year ahead)
+  for (let i = 0; i < 365 * 24 * 60; i++) {
+    if (matchesCron(next, minute, hour, day, month, weekday)) {
+      return next;
+    }
+    next.setMinutes(next.getMinutes() + 1);
+  }
+
+  return null;
+}
+
+function matchesCron(date, minute, hour, day, month, weekday) {
+  const d = date;
+
+  // Check minute
+  if (minute !== '*' && !matchesValue(d.getMinutes(), minute)) return false;
+
+  // Check hour
+  if (hour !== '*' && !matchesValue(d.getHours(), hour)) return false;
+
+  // Check day
+  if (day !== '*' && !matchesValue(d.getDate(), day)) return false;
+
+  // Check month
+  if (month !== '*' && !matchesValue(d.getMonth() + 1, month)) return false;
+
+  // Check weekday (0 = Sunday)
+  if (weekday !== '*' && !matchesValue(d.getDay(), weekday)) return false;
+
+  return true;
+}
+
+function matchesValue(value, pattern) {
+  // Handle ranges: 1-5
+  if (pattern.includes('-')) {
+    const [start, end] = pattern.split('-').map(Number);
+    return value >= start && value <= end;
+  }
+
+  // Handle lists: 1,3,5
+  if (pattern.includes(',')) {
+    return pattern.split(',').map(Number).includes(value);
+  }
+
+  // Handle step: */5 or 1-10/2
+  if (pattern.includes('/')) {
+    const [base, step] = pattern.split('/');
+    const stepNum = parseInt(step);
+    if (base === '*') {
+      return value % stepNum === 0;
+    }
+    const [start, end] = base.split('-').map(Number);
+    if (value < start || value > end) return false;
+    return (value - start) % stepNum === 0;
+  }
+
+  // Simple match
+  return value === parseInt(pattern);
+}
+
+function formatNextRunDate(date) {
+  if (!date) return 'Unknown';
+
+  const now = new Date();
+  const diff = date - now;
+
+  if (diff < 60000) { // Less than 1 minute
+    return 'In less than a minute';
+  } else if (diff < 3600000) { // Less than 1 hour
+    const minutes = Math.floor(diff / 60000);
+    return `In ${minutes} minute${minutes > 1 ? 's' : ''}`;
+  } else if (diff < 86400000) { // Less than 1 day
+    const hours = Math.floor(diff / 3600000);
+    return `In ${hours} hour${hours > 1 ? 's' : ''}`;
+  } else if (diff < 604800000) { // Less than 1 week
+    const days = Math.floor(diff / 86400000);
+    return `In ${days} day${days > 1 ? 's' : ''}`;
+  } else {
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+}
+
+function updateCronExplanation() {
+  const cronInput = document.getElementById('taskCron');
+  const cronExplanationDiv = document.getElementById('cronExplanation');
+  const cronExplanationText = document.getElementById('cronExplanationText');
+  const cronNextRun = document.getElementById('cronNextRun');
+
+  const cronExpression = cronInput.value.trim();
+
+  if (!cronExpression) {
+    cronExplanationDiv.style.display = 'none';
+    return;
+  }
+
+  const cronInfo = explainCron(cronExpression);
+
+  if (cronInfo.explanation === 'Invalid cron format') {
+    cronExplanationDiv.style.display = 'none';
+    return;
+  }
+
+  cronExplanationText.textContent = cronInfo.explanation;
+  cronNextRun.textContent = `Next run: ${cronInfo.nextRun ? formatNextRunDate(cronInfo.nextRun) : 'Unknown'}`;
+  cronExplanationDiv.style.display = 'block';
+}
+
 // Show scheduled tasks page
 function showScheduledTasksPage() {
   document.querySelector('.test-history').style.display = 'none';
@@ -977,6 +1199,11 @@ function renderScheduledTaskCard(task) {
   const lastRun = task.last_run ? new Date(task.last_run).toLocaleString() : 'Never';
   const created = new Date(task.created_at).toLocaleString();
 
+  // Get cron explanation and next run time
+  const cronInfo = explainCron(task.cron_expression);
+  const cronExplanation = cronInfo.explanation;
+  const nextRun = cronInfo.nextRun ? formatNextRunDate(cronInfo.nextRun) : 'Unknown';
+
   return `
     <div class="scheduled-task-card ${enabledClass}">
       <div class="scheduled-task-header">
@@ -987,6 +1214,10 @@ function renderScheduledTaskCard(task) {
         <div class="scheduled-task-info">
           <div><strong>Domain:</strong> ${task.domain}</div>
           <div><strong>Cron:</strong> <code style="background: #edf2f7; padding: 2px 6px; border-radius: 3px;">${task.cron_expression}</code></div>
+          <div style="margin-top: 0.5rem; padding: 0.5rem; background: #f7fafc; border-radius: 4px; font-size: 0.875rem;">
+            <div style="color: #4a5568; margin-bottom: 0.25rem;">💡 <strong>Schedule:</strong> ${cronExplanation}</div>
+            <div style="color: #667eea; font-weight: 500;">⏰ Next run: ${nextRun}</div>
+          </div>
           <div><strong>Last Run:</strong> ${lastRun}</div>
           <div><strong>Created:</strong> ${created}</div>
         </div>
@@ -1025,18 +1256,8 @@ async function editScheduledTask(taskId) {
     document.getElementById('taskCron').value = task.cron_expression;
     document.getElementById('taskEnabled').checked = task.enabled === 1;
 
-    // Load custom URLs
-    const taskCustomUrlsInput = document.getElementById('taskCustomUrls');
-    if (task.custom_urls) {
-      try {
-        const customUrls = JSON.parse(task.custom_urls);
-        taskCustomUrlsInput.value = customUrls.join('\n');
-      } catch (error) {
-        taskCustomUrlsInput.value = '';
-      }
-    } else {
-      taskCustomUrlsInput.value = '';
-    }
+    // Update cron explanation for existing task
+    updateCronExplanation();
 
     scheduledTaskModal.classList.add('active');
   } catch (error) {
@@ -1049,6 +1270,8 @@ function closeScheduledTaskModal() {
   scheduledTaskModal.classList.remove('active');
   currentScheduledTask = null;
   document.getElementById('scheduledTaskForm').reset();
+  // Hide cron explanation
+  document.getElementById('cronExplanation').style.display = 'none';
 }
 
 // Save scheduled task (create or update)
@@ -1059,13 +1282,6 @@ async function saveScheduledTask(e) {
   const domain = document.getElementById('taskDomain').value;
   const cronExpression = document.getElementById('taskCron').value;
   const enabled = document.getElementById('taskEnabled').checked;
-
-  // Get custom URLs
-  const taskCustomUrlsInput = document.getElementById('taskCustomUrls');
-  const customUrlsText = taskCustomUrlsInput.value.trim();
-  const customUrls = customUrlsText
-    ? customUrlsText.split('\n').map(url => url.trim()).filter(url => url.length > 0)
-    : [];
 
   try {
     let response;
@@ -1078,8 +1294,7 @@ async function saveScheduledTask(e) {
           name,
           domain,
           cron_expression: cronExpression,
-          enabled,
-          custom_urls: customUrls
+          enabled
         })
       });
     } else {
@@ -1090,8 +1305,7 @@ async function saveScheduledTask(e) {
         body: JSON.stringify({
           name,
           domain,
-          cron_expression: cronExpression,
-          custom_urls: customUrls
+          cron_expression: cronExpression
         })
       });
     }
@@ -1310,5 +1524,57 @@ function clearAllNotifications() {
   const container = document.getElementById('notificationsContainer');
   if (container) {
     container.innerHTML = '';
+  }
+}
+
+// ===== Global Configuration Functions =====
+
+function openConfigModal() {
+  configModal.classList.add('active');
+  loadGlobalConfig();
+}
+
+function closeConfigModal() {
+  configModal.classList.remove('active');
+}
+
+async function loadGlobalConfig() {
+  try {
+    const response = await fetch('/api/config/custom-urls');
+    const customUrls = await response.json();
+
+    const configCustomUrlsInput = document.getElementById('configCustomUrls');
+    configCustomUrlsInput.value = customUrls.join('\n');
+  } catch (error) {
+    console.error('Error loading global config:', error);
+  }
+}
+
+async function saveGlobalConfig(e) {
+  e.preventDefault();
+
+  const configCustomUrlsInput = document.getElementById('configCustomUrls');
+  const customUrlsText = configCustomUrlsInput.value.trim();
+  const customUrls = customUrlsText
+    ? customUrlsText.split('\n').map(url => url.trim()).filter(url => url.length > 0)
+    : [];
+
+  try {
+    const response = await fetch('/api/config/custom-urls', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_urls: customUrls })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      alert('Failed to save configuration: ' + (error.error || 'Unknown error'));
+      return;
+    }
+
+    closeConfigModal();
+    alert('✅ Configuration saved successfully!');
+  } catch (error) {
+    alert('Error saving configuration: ' + error.message);
   }
 }
