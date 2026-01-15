@@ -23,6 +23,9 @@
     </div>
   </header>
 
+  <!-- Notifications Container -->
+  <div id="notificationsContainer" class="notifications-container"></div>
+
   <main>
     <!-- Scan Progress Modal -->
     <div id="progressModal" class="modal">
@@ -111,6 +114,11 @@
               <span style="font-weight: 600;">Select All</span>
             </label>
           </div>
+          <div style="margin-bottom: 1rem;">
+            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Custom URLs (optional):</label>
+            <textarea id="customUrlsInput" placeholder="Enter custom URLs to test (one per line)&#10;Example:&#10;/products/123&#10;/used-cars/bmw-3-series" style="width: 100%; min-height: 100px; padding: 0.5rem; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.875rem; font-family: monospace;"></textarea>
+            <small style="color: #718096; display: block; margin-top: 0.25rem;">Custom URLs are not subject to the 10-page limit. Leave empty to only use auto-discovered pages.</small>
+          </div>
           <button id="confirmScanBtn" class="btn btn-primary">Start Scan</button>
         </div>
       </div>
@@ -163,6 +171,11 @@
                 <input type="checkbox" id="taskEnabled" checked>
                 <span>Enabled</span>
               </label>
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Custom URLs (optional):</label>
+              <textarea id="taskCustomUrls" placeholder="Enter custom URLs to test (one per line)&#10;Example:&#10;/products/123&#10;/used-cars/bmw-3-series" style="width: 100%; min-height: 100px; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.875rem; font-family: monospace;"></textarea>
+              <small style="color: #718096; display: block; margin-top: 0.25rem;">Custom URLs are not subject to the 10-page limit. Leave empty to only use auto-discovered pages.</small>
             </div>
             <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
               <button type="submit" class="btn btn-primary">Save Task</button>

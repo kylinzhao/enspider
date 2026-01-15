@@ -79,13 +79,30 @@ class SchedulerService {
    */
   private async executeTask(taskId: number, domain: string): Promise<void> {
     try {
+      // Get task details
+      const task = this.db.getScheduledTask(taskId);
+      if (!task) {
+        console.error(`[Scheduler] Task ${taskId} not found`);
+        return;
+      }
+
       // Update last_run time
       this.db.updateScheduledTask(taskId, {
         last_run: Date.now()
       });
 
-      // Run the scan
-      await runScan(domain, this.db);
+      // Parse custom URLs if present
+      let customUrls: string[] = [];
+      if (task.custom_urls) {
+        try {
+          customUrls = JSON.parse(task.custom_urls);
+        } catch (error) {
+          console.error(`[Scheduler] Failed to parse custom_urls for task ${taskId}:`, error);
+        }
+      }
+
+      // Run the scan with custom URLs
+      await runScan(domain, this.db, { customUrls });
 
       console.log(`[Scheduler] Task ${taskId} completed successfully`);
     } catch (error) {

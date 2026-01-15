@@ -30,8 +30,26 @@ export interface ScanProgress {
   logs: string[];
 }
 
+export interface Notification {
+  id: string;
+  type: 'scan_completed' | 'scan_failed';
+  testId: number;
+  domain: string;
+  title: string;
+  message: string;
+  timestamp: number;
+  data?: {
+    totalPages: number;
+    totalIssues: number;
+    duration: number;
+    durationFormatted: string;
+  };
+}
+
 export class ProgressManager extends EventEmitter {
   private activeScans: Map<number, ScanProgress> = new Map();
+  private notifications: Notification[] = [];
+  private notificationIdCounter = 0;
 
   createScan(testId: number, domain: string): void {
     const progress: ScanProgress = {
@@ -147,11 +165,72 @@ export class ProgressManager extends EventEmitter {
       progress.currentPercent = 100;
       this.emit('progress', progress);
 
+      // Create notification
+      this.createNotification(testId, progress, success);
+
       // Keep for 5 minutes then cleanup
       setTimeout(() => {
         this.activeScans.delete(testId);
       }, 5 * 60 * 1000);
     }
+  }
+
+  private createNotification(testId: number, progress: ScanProgress, success: boolean): void {
+    const id = `notif-${++this.notificationIdCounter}`;
+    const duration = progress.elapsedTime;
+    const durationFormatted = this.formatDuration(duration);
+
+    const notification: Notification = {
+      id,
+      type: success ? 'scan_completed' : 'scan_failed',
+      testId,
+      domain: progress.domain,
+      title: success ? `✅ Scan Completed - ${progress.domain}` : `❌ Scan Failed - ${progress.domain}`,
+      message: success
+        ? `Successfully tested ${progress.totalPages} pages with ${progress.issues.total} issues found.`
+        : `Scan for ${progress.domain} failed. Please check the logs for details.`,
+      timestamp: Date.now(),
+      data: success
+        ? {
+            totalPages: progress.totalPages,
+            totalIssues: progress.issues.total,
+            duration,
+            durationFormatted,
+          }
+        : undefined,
+    };
+
+    this.notifications.push(notification);
+
+    // Keep only last 100 notifications
+    if (this.notifications.length > 100) {
+      this.notifications = this.notifications.slice(-100);
+    }
+
+    // Emit notification event
+    this.emit('notification', notification);
+
+    // Also emit to all connected clients via a global event
+    this.emit('broadcast', { type: 'notification', data: notification });
+  }
+
+  private formatDuration(ms: number): string {
+    const seconds = Math.floor(ms / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
+  }
+
+  getNotifications(limit: number = 20): Notification[] {
+    return this.notifications
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, limit);
+  }
+
+  clearNotifications(): void {
+    this.notifications = [];
+    this.emit('notifications_cleared');
   }
 
   getProgress(testId: number): ScanProgress | undefined {

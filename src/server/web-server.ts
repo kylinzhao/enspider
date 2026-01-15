@@ -100,7 +100,7 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
    */
   app.post('/api/scan/start', async (req, res) => {
     try {
-      const { domain } = req.body;
+      const { domain, custom_urls } = req.body;
 
       if (!domain) {
         res.status(400).json({ error: 'Domain is required' });
@@ -108,7 +108,7 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
       }
 
       // Start scan asynchronously
-      runScan(domain, db).catch(error => {
+      runScan(domain, db, { customUrls: custom_urls }).catch(error => {
         console.error('Scan failed:', error);
       });
 
@@ -214,14 +214,14 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
    */
   app.post('/api/scheduled-tasks', (req, res) => {
     try {
-      const { name, domain, cron_expression } = req.body;
+      const { name, domain, cron_expression, custom_urls } = req.body;
 
       if (!name || !domain || !cron_expression) {
         res.status(400).json({ error: 'Name, domain, and cron_expression are required' });
         return;
       }
 
-      const taskId = db.createScheduledTask(name, domain, cron_expression);
+      const taskId = db.createScheduledTask(name, domain, cron_expression, custom_urls);
       const task = db.getScheduledTask(taskId);
 
       // Schedule the task
@@ -241,7 +241,7 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
   app.put('/api/scheduled-tasks/:id', (req, res) => {
     try {
       const taskId = parseInt(req.params.id);
-      const { name, domain, cron_expression, enabled } = req.body;
+      const { name, domain, cron_expression, enabled, custom_urls } = req.body;
 
       const existingTask = db.getScheduledTask(taskId);
       if (!existingTask) {
@@ -255,6 +255,7 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
       if (domain !== undefined) updateData.domain = domain;
       if (cron_expression !== undefined) updateData.cron_expression = cron_expression;
       if (enabled !== undefined) updateData.enabled = enabled ? 1 : 0;
+      if (custom_urls !== undefined) updateData.custom_urls_array = custom_urls;
 
       db.updateScheduledTask(taskId, updateData);
       const updatedTask = db.getScheduledTask(taskId);
@@ -361,6 +362,70 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
       progressManager.off('progress', onProgress);
       console.log(`[SSE] Client disconnected from test ${testId}`);
     });
+  });
+
+  /**
+   * GET /api/notifications/stream - SSE endpoint for real-time notifications
+   */
+  app.get('/api/notifications/stream', (req, res) => {
+    // Set headers for SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    console.log('[SSE] Client connected to notifications stream');
+
+    // Send recent notifications on connect
+    const recentNotifications = progressManager.getNotifications(10);
+    if (recentNotifications.length > 0) {
+      res.write(`data: ${JSON.stringify({
+        type: 'recent',
+        notifications: recentNotifications
+      })}\n\n`);
+    }
+
+    // Listen for new notifications
+    const onNotification = (notification: any) => {
+      res.write(`data: ${JSON.stringify({
+        type: 'new',
+        notification
+      })}\n\n`);
+      console.log(`[Notification] Sent to client: ${notification.title}`);
+    };
+
+    progressManager.on('notification', onNotification);
+
+    // Cleanup on client disconnect
+    req.on('close', () => {
+      progressManager.off('notification', onNotification);
+      console.log('[SSE] Client disconnected from notifications stream');
+    });
+  });
+
+  /**
+   * GET /api/notifications - Get recent notifications
+   */
+  app.get('/api/notifications', (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 20;
+      const notifications = progressManager.getNotifications(limit);
+      res.json(notifications);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch notifications' });
+    }
+  });
+
+  /**
+   * DELETE /api/notifications - Clear all notifications
+   */
+  app.delete('/api/notifications', (req, res) => {
+    try {
+      progressManager.clearNotifications();
+      res.json({ message: 'Notifications cleared successfully' });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to clear notifications' });
+    }
   });
 
   // Serve frontend static files

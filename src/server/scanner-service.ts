@@ -15,7 +15,11 @@ import { ProgressTracker } from '../utils/progress.js';
 import { screenshotAnalyzer } from '../utils/screenshot-analyzer.js';
 import logger from '../utils/logger.js';
 
-export async function runScan(domain: string, db: DatabaseManager): Promise<void> {
+export interface ScanOptions {
+  customUrls?: string[];
+}
+
+export async function runScan(domain: string, db: DatabaseManager, options?: ScanOptions): Promise<void> {
   const progress = new ProgressTracker(`SCAN ${domain}`);
   const startTime = Date.now();
 
@@ -94,6 +98,7 @@ export async function runScan(domain: string, db: DatabaseManager): Promise<void
       // Step 2: Analyze DOM structure
       // SAMPLE LINKS: Limit to max 10 pages to avoid overwhelming the server
       // Must include at least 2 list pages and 2 detail pages
+      // Custom URLs are NOT subject to this limit
       const totalSteps = 5;
       const MAX_SAMPLE_PAGES = 10;
       const MIN_LIST_PAGES = 2;
@@ -117,7 +122,7 @@ export async function runScan(domain: string, db: DatabaseManager): Promise<void
 
       progress.info(`  Found ${listPages.length} list pages, ${detailPages.length} detail pages, ${otherPages.length} other pages`);
 
-      // Sample pages strategically
+      // Sample pages strategically (only for auto-crawled pages)
       const sampledLinks = [];
 
       // Add minimum required pages
@@ -137,7 +142,17 @@ export async function runScan(domain: string, db: DatabaseManager): Promise<void
         sampledLinks.push(otherPages[i]);
       }
 
-      progress.info(`  → Sampling ${sampledLinks.length} pages for analysis (${listPagesToAdd} list, ${detailPagesToAdd} detail, ${sampledLinks.length - listPagesToAdd - detailPagesToAdd} other)`);
+      progress.info(`  → Sampling ${sampledLinks.length} auto-crawled pages for analysis (${listPagesToAdd} list, ${detailPagesToAdd} detail, ${sampledLinks.length - listPagesToAdd - detailPagesToAdd} other)`);
+
+      // Add custom URLs if provided (not subject to the 10-page limit)
+      const customUrls = options?.customUrls || [];
+      if (customUrls.length > 0) {
+        progress.info(`  → Adding ${customUrls.length} custom URLs (not subject to sampling limit)`);
+        progressManager.addLog(testId, `Adding ${customUrls.length} custom URLs`);
+        customUrls.forEach(url => {
+          sampledLinks.push({ url, source: 'custom' });
+        });
+      }
 
       const visitPromises = sampledLinks.map(async (link, idx) => {
         try {

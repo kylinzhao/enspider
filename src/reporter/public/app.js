@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   initRouter();  // Initialize router first
   loadTests();
+  initNotifications();  // Initialize notifications
 });
 
 function setupEventListeners() {
@@ -569,6 +570,13 @@ async function startScan() {
     return;
   }
 
+  // Get custom URLs
+  const customUrlsInput = document.getElementById('customUrlsInput');
+  const customUrlsText = customUrlsInput.value.trim();
+  const customUrls = customUrlsText
+    ? customUrlsText.split('\n').map(url => url.trim()).filter(url => url.length > 0)
+    : [];
+
   try {
     closeScanModal();
 
@@ -578,7 +586,7 @@ async function startScan() {
         fetch('/api/scan/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ domain })
+          body: JSON.stringify({ domain, custom_urls: customUrls })
         })
       )
     );
@@ -1017,6 +1025,19 @@ async function editScheduledTask(taskId) {
     document.getElementById('taskCron').value = task.cron_expression;
     document.getElementById('taskEnabled').checked = task.enabled === 1;
 
+    // Load custom URLs
+    const taskCustomUrlsInput = document.getElementById('taskCustomUrls');
+    if (task.custom_urls) {
+      try {
+        const customUrls = JSON.parse(task.custom_urls);
+        taskCustomUrlsInput.value = customUrls.join('\n');
+      } catch (error) {
+        taskCustomUrlsInput.value = '';
+      }
+    } else {
+      taskCustomUrlsInput.value = '';
+    }
+
     scheduledTaskModal.classList.add('active');
   } catch (error) {
     alert('Error loading task: ' + error.message);
@@ -1039,6 +1060,13 @@ async function saveScheduledTask(e) {
   const cronExpression = document.getElementById('taskCron').value;
   const enabled = document.getElementById('taskEnabled').checked;
 
+  // Get custom URLs
+  const taskCustomUrlsInput = document.getElementById('taskCustomUrls');
+  const customUrlsText = taskCustomUrlsInput.value.trim();
+  const customUrls = customUrlsText
+    ? customUrlsText.split('\n').map(url => url.trim()).filter(url => url.length > 0)
+    : [];
+
   try {
     let response;
     if (currentScheduledTask) {
@@ -1050,7 +1078,8 @@ async function saveScheduledTask(e) {
           name,
           domain,
           cron_expression: cronExpression,
-          enabled
+          enabled,
+          custom_urls: customUrls
         })
       });
     } else {
@@ -1061,7 +1090,8 @@ async function saveScheduledTask(e) {
         body: JSON.stringify({
           name,
           domain,
-          cron_expression: cronExpression
+          cron_expression: cronExpression,
+          custom_urls: customUrls
         })
       });
     }
@@ -1141,5 +1171,144 @@ async function deleteScheduledTask(taskId) {
     loadScheduledTasks();
   } catch (error) {
     alert('Error deleting task: ' + error.message);
+  }
+}
+
+// ===== Notifications System =====
+
+let notificationEventSource = null;
+const NOTIFICATION_AUTO_DISMISS = 10000; // 10 seconds
+
+function initNotifications() {
+  // Connect to notification stream
+  connectNotificationStream();
+
+  // Request notification permission if not granted
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function connectNotificationStream() {
+  if (notificationEventSource) {
+    notificationEventSource.close();
+  }
+
+  notificationEventSource = new EventSource('/api/notifications/stream');
+
+  notificationEventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'recent') {
+        // Display recent notifications
+        data.notifications.forEach(notification => {
+          showNotification(notification);
+        });
+      } else if (data.type === 'new') {
+        // Display new notification
+        showNotification(data.notification);
+      }
+    } catch (error) {
+      console.error('Error parsing notification data:', error);
+    }
+  };
+
+  notificationEventSource.onerror = (error) => {
+    console.error('Notification stream error:', error);
+    // Attempt to reconnect after 5 seconds
+    setTimeout(() => {
+      connectNotificationStream();
+    }, 5000);
+  };
+}
+
+function showNotification(notification) {
+  const container = document.getElementById('notificationsContainer');
+  if (!container) return;
+
+  // Check if notification already exists
+  const existingNotif = document.getElementById(`notif-${notification.id}`);
+  if (existingNotif) return;
+
+  // Create notification element
+  const notifEl = document.createElement('div');
+  notifEl.id = `notif-${notification.id}`;
+  notifEl.className = `notification ${notification.type === 'scan_completed' ? 'notification-success' : 'notification-error'}`;
+
+  const icon = notification.type === 'scan_completed' ? '✅' : '❌';
+  const time = new Date(notification.timestamp).toLocaleTimeString();
+
+  let dataHTML = '';
+  if (notification.data) {
+    dataHTML = `
+      <div class="notification-data">
+        <div class="notification-data-item">
+          <div class="notification-data-value">${notification.data.totalPages}</div>
+          <div class="notification-data-label">Pages</div>
+        </div>
+        <div class="notification-data-item">
+          <div class="notification-data-value">${notification.data.totalIssues}</div>
+          <div class="notification-data-label">Issues</div>
+        </div>
+        <div class="notification-data-item">
+          <div class="notification-data-value">${notification.data.durationFormatted}</div>
+          <div class="notification-data-label">Duration</div>
+        </div>
+      </div>
+    `;
+  }
+
+  notifEl.innerHTML = `
+    <div class="notification-icon">${icon}</div>
+    <div class="notification-content">
+      <div class="notification-title">${notification.title}</div>
+      <div class="notification-message">${notification.message}</div>
+      ${dataHTML}
+      <div class="notification-time">${time}</div>
+    </div>
+    <button class="notification-close" onclick="dismissNotification('${notification.id}')">&times;</button>
+  `;
+
+  // Add click handler to navigate to test details
+  notifEl.addEventListener('click', (e) => {
+    if (!e.target.classList.contains('notification-close')) {
+      navigateTo(`/test/${notification.testId}`, { testId: notification.testId });
+    }
+  });
+
+  container.appendChild(notifEl);
+
+  // Auto-dismiss after NOTIFICATION_AUTO_DISMISS milliseconds
+  setTimeout(() => {
+    dismissNotification(notification.id);
+  }, NOTIFICATION_AUTO_DISMISS);
+
+  // Show browser notification if permission granted
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new BrowserNotification(notification.title, {
+      body: notification.message,
+      icon: '/favicon.ico',
+      tag: notification.id
+    });
+  }
+}
+
+function dismissNotification(notificationId) {
+  const notifEl = document.getElementById(`notif-${notificationId}`);
+  if (notifEl) {
+    notifEl.classList.add('removing');
+    setTimeout(() => {
+      if (notifEl.parentNode) {
+        notifEl.parentNode.removeChild(notifEl);
+      }
+    }, 300);
+  }
+}
+
+function clearAllNotifications() {
+  const container = document.getElementById('notificationsContainer');
+  if (container) {
+    container.innerHTML = '';
   }
 }

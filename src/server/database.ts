@@ -61,6 +61,7 @@ export interface ScheduledTaskRecord {
   enabled: number;
   last_run: number | null;
   next_run: number | null;
+  custom_urls: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -177,10 +178,23 @@ export class DatabaseManager {
         enabled INTEGER DEFAULT 1,
         last_run INTEGER,
         next_run INTEGER,
+        custom_urls TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
     `);
+
+    // Add custom_urls column if not exists
+    try {
+      const columns = this.db.pragma('table_info(scheduled_tasks)') as any[];
+      const hasCustomUrls = columns.some((col) => col.name === 'custom_urls');
+
+      if (!hasCustomUrls) {
+        this.db.exec('ALTER TABLE scheduled_tasks ADD COLUMN custom_urls TEXT');
+      }
+    } catch (error) {
+      // Column might already exist or table doesn't exist yet
+    }
 
     // Create indexes
     this.db.exec(`
@@ -358,13 +372,14 @@ export class DatabaseManager {
   }
 
   // Scheduled Task operations
-  createScheduledTask(name: string, domain: string, cronExpression: string): number {
+  createScheduledTask(name: string, domain: string, cronExpression: string, customUrls?: string[]): number {
     const now = Date.now();
+    const customUrlsJson = customUrls && customUrls.length > 0 ? JSON.stringify(customUrls) : null;
     const stmt = this.db.prepare(`
-      INSERT INTO scheduled_tasks (name, domain, cron_expression, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, 1, ?, ?)
+      INSERT INTO scheduled_tasks (name, domain, cron_expression, enabled, custom_urls, created_at, updated_at)
+      VALUES (?, ?, ?, 1, ?, ?, ?)
     `);
-    const result = stmt.run(name, domain, cronExpression, now, now);
+    const result = stmt.run(name, domain, cronExpression, customUrlsJson, now, now);
     return result.lastInsertRowid as number;
   }
 
@@ -378,7 +393,7 @@ export class DatabaseManager {
     return stmt.get(id) as ScheduledTaskRecord | undefined;
   }
 
-  updateScheduledTask(id: number, data: Partial<ScheduledTaskRecord>): void {
+  updateScheduledTask(id: number, data: Partial<ScheduledTaskRecord & { custom_urls_array?: string[] }>): void {
     const fields: string[] = [];
     const values: any[] = [];
 
@@ -405,6 +420,16 @@ export class DatabaseManager {
     if (data.next_run !== undefined) {
       fields.push('next_run = ?');
       values.push(data.next_run);
+    }
+    if (data.custom_urls !== undefined) {
+      fields.push('custom_urls = ?');
+      values.push(data.custom_urls);
+    } else if (data.custom_urls_array !== undefined) {
+      fields.push('custom_urls = ?');
+      const customUrlsJson = data.custom_urls_array && data.custom_urls_array.length > 0
+        ? JSON.stringify(data.custom_urls_array)
+        : null;
+      values.push(customUrlsJson);
     }
 
     if (fields.length > 0) {
