@@ -42,6 +42,16 @@ export interface PageRecord {
     pc_spider?: string;
     mobile_spider?: string;
   };
+  seo?: {
+    score: number;
+    meta: any;
+    openGraph: any;
+    twitterCard: any;
+    structuredData: any;
+    headings: any;
+    images: any;
+    links: any;
+  };
 }
 
 export interface IssueRecord {
@@ -161,6 +171,18 @@ export class DatabaseManager {
       // Column might already exist
     }
 
+    // Add seo column if not exists
+    try {
+      const columns = this.db.pragma('table_info(pages)') as any[];
+      const hasSEO = columns.some((col) => col.name === 'seo');
+
+      if (!hasSEO) {
+        this.db.exec('ALTER TABLE pages ADD COLUMN seo TEXT');
+      }
+    } catch (error) {
+      // Column might already exist
+    }
+
     // Issues table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS issues (
@@ -204,6 +226,20 @@ export class DatabaseManager {
     if (!existingConfig) {
       this.db.prepare('INSERT INTO global_config (key, value, updated_at) VALUES (?, ?, ?)')
         .run('custom_urls', '[]', Date.now());
+    }
+
+    // Insert default cleanup policy if not exists
+    const existingCleanupPolicy = this.db.prepare('SELECT * FROM global_config WHERE key = ?').get('cleanup_policy');
+    if (!existingCleanupPolicy) {
+      const defaultPolicy = {
+        enabled: true,
+        retainDays: 30,
+        maxTests: 100,
+        autoCleanup: true,
+        archiveBeforeDelete: false,
+      };
+      this.db.prepare('INSERT INTO global_config (key, value, updated_at) VALUES (?, ?, ?)')
+        .run('cleanup_policy', JSON.stringify(defaultPolicy), Date.now());
     }
 
     // Create indexes
@@ -274,8 +310,8 @@ export class DatabaseManager {
   // Page operations
   createPage(page: Omit<PageRecord, 'id'>): number {
     const stmt = this.db.prepare(`
-      INSERT INTO pages (test_id, url, domain, page_type, category, status, issues_count, screenshots, screenshot_issues, load_time, http_status, request_ids)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO pages (test_id, url, domain, page_type, category, status, issues_count, screenshots, screenshot_issues, load_time, http_status, request_ids, seo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       page.test_id,
@@ -289,7 +325,8 @@ export class DatabaseManager {
       page.screenshot_issues ? JSON.stringify(page.screenshot_issues) : null,
       page.load_time || null,
       page.http_status || null,
-      page.request_ids ? JSON.stringify(page.request_ids) : null
+      page.request_ids ? JSON.stringify(page.request_ids) : null,
+      page.seo ? JSON.stringify(page.seo) : null
     );
     return result.lastInsertRowid as number;
   }
@@ -301,7 +338,8 @@ export class DatabaseManager {
       ...row,
       screenshots: JSON.parse(row.screenshots || '{}'),
       screenshot_issues: row.screenshot_issues ? JSON.parse(row.screenshot_issues) : undefined,
-      request_ids: row.request_ids ? JSON.parse(row.request_ids) : undefined
+      request_ids: row.request_ids ? JSON.parse(row.request_ids) : undefined,
+      seo: row.seo ? JSON.parse(row.seo) : undefined
     }));
   }
 
@@ -477,5 +515,161 @@ export class DatabaseManager {
 
   setCustomUrls(urls: string[]): void {
     this.setGlobalConfig('custom_urls', JSON.stringify(urls));
+  }
+
+  // Cleanup policy operations
+  getCleanupPolicy(): any {
+    const value = this.getGlobalConfig('cleanup_policy');
+    if (!value) {
+      // Return default policy
+      return {
+        enabled: true,
+        retainDays: 30,
+        maxTests: 100,
+        autoCleanup: true,
+        archiveBeforeDelete: false,
+      };
+    }
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {
+        enabled: true,
+        retainDays: 30,
+        maxTests: 100,
+        autoCleanup: true,
+        archiveBeforeDelete: false,
+      };
+    }
+  }
+
+  setCleanupPolicy(policy: any): void {
+    this.setGlobalConfig('cleanup_policy', JSON.stringify(policy));
+  }
+
+  /**
+   * Cleanup old tests based on retention policy
+   * Returns the number of tests deleted
+   */
+  async cleanupOldTests(): Promise<{ deleted: number; archived: number }> {
+    const policy = this.getCleanupPolicy();
+
+    if (!policy.enabled || !policy.autoCleanup) {
+      return { deleted: 0, archived: 0 };
+    }
+
+    let deleted = 0;
+    let archived = 0;
+
+    // Get all tests, ordered by timestamp (oldest first)
+    const allTests = this.getLatestTests(10000); // Get up to 10k tests
+
+    const now = Date.now();
+    const cutoffTime = now - (policy.retainDays * 24 * 60 * 60 * 1000);
+
+    // Filter tests that should be deleted
+    const testsToDelete = allTests.filter(test => {
+      // Delete if older than retention days
+      if (test.timestamp < cutoffTime) {
+        return true;
+      }
+      // Also delete if we have more than maxTests (keep only the most recent)
+      const testIndex = allTests.findIndex(t => t.id === test.id);
+      return testIndex >= policy.maxTests;
+    });
+
+    // Delete tests (excluding running tests)
+    for (const test of testsToDelete) {
+      if (test.status === 'running') {
+        continue; // Skip running tests
+      }
+
+      try {
+        // Archive if enabled
+        if (policy.archiveBeforeDelete) {
+          await this.archiveTest(test.id);
+          archived++;
+        }
+
+        await this.deleteTest(test.id);
+        deleted++;
+      } catch (error) {
+        console.error(`Failed to delete test ${test.id}:`, error);
+      }
+    }
+
+    return { deleted, archived };
+  }
+
+  /**
+   * Archive a test by copying data to archive directory
+   */
+  private async archiveTest(testId: number): Promise<void> {
+    const test = this.getTest(testId);
+    if (!test) return;
+
+    const fs = await import('fs/promises');
+    const path = await import('path');
+
+    const archiveDir = path.join(process.cwd(), 'output', 'archive', `test_${testId}_${Date.now()}`);
+    await fs.mkdir(archiveDir, { recursive: true });
+
+    // Export test data as JSON
+    const pages = this.getPagesByTest(testId);
+    const archiveData = {
+      test,
+      pages,
+      exportedAt: Date.now(),
+    };
+
+    const archiveFile = path.join(archiveDir, 'data.json');
+    await fs.writeFile(archiveFile, JSON.stringify(archiveData, null, 2));
+
+    // Copy screenshots to archive
+    for (const page of pages) {
+      if (page.screenshots) {
+        for (const [viewport, screenshotPath] of Object.entries(page.screenshots)) {
+          try {
+            const sourcePath = path.join(process.cwd(), screenshotPath);
+            const destPath = path.join(archiveDir, path.basename(screenshotPath));
+            await fs.copyFile(sourcePath, destPath);
+          } catch (error) {
+            // Screenshot might not exist, ignore
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Get statistics about the database
+   */
+  getStats(): {
+    totalTests: number;
+    totalPages: number;
+    totalIssues: number;
+    oldestTest: number | null;
+    newestTest: number | null;
+    dbSize: number;
+  } {
+    const totalTests = this.db.prepare('SELECT COUNT(*) as count FROM tests').get() as { count: number };
+    const totalPages = this.db.prepare('SELECT COUNT(*) as count FROM pages').get() as { count: number };
+    const totalIssues = this.db.prepare('SELECT COUNT(*) as count FROM issues').get() as { count: number };
+    const oldestTest = this.db.prepare('SELECT MIN(timestamp) as min FROM tests').get() as { min: number | null };
+    const newestTest = this.db.prepare('SELECT MAX(timestamp) as max FROM tests').get() as { max: number | null };
+
+    // Get database file size
+    const fs = require('fs');
+    const stats = fs.statSync(this.dbPath);
+    const dbSize = stats.size;
+
+    return {
+      totalTests: totalTests.count,
+      totalPages: totalPages.count,
+      totalIssues: totalIssues.count,
+      oldestTest: oldestTest.min,
+      newestTest: newestTest.max,
+      dbSize,
+    };
   }
 }

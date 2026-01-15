@@ -2,6 +2,7 @@ import { Page, Browser } from 'playwright';
 import { ViewportChecker } from './viewport-checker.js';
 import { ErrorDetector } from './error-detector.js';
 import { ScreenshotCapture } from './screenshot-capture.js';
+import { SEOChecker, SEOResult } from './seo-checker.js';
 import { PageResult, ViewportMode, ViewportType, Config } from '../types.js';
 import { getViewportModes } from '../utils/page-utils.js';
 import logger from '../utils/logger.js';
@@ -10,6 +11,7 @@ export class MultiViewportScanner {
   private viewportChecker: ViewportChecker;
   private errorDetector: ErrorDetector;
   private screenshotCapture: ScreenshotCapture;
+  private seoChecker: SEOChecker;
   private config: Config;
   private browser: Browser;
 
@@ -18,6 +20,7 @@ export class MultiViewportScanner {
     this.browser = browser;
     this.viewportChecker = new ViewportChecker();
     this.errorDetector = new ErrorDetector();
+    this.seoChecker = new SEOChecker();
     this.screenshotCapture = new ScreenshotCapture(
       browser,
       config.output.screenshotsDir
@@ -43,9 +46,11 @@ export class MultiViewportScanner {
       loadTime: 0,
       httpStatus: 200,
       requestIds: {},
+      seo: undefined,
     };
 
     const viewportModes = getViewportModes(this.config.viewports.pc, this.config.viewports.mobile);
+    let firstViewportPage: Page | null = null;
 
     // Process viewports SEQUENTIALLY to avoid resource contention and improve success rate
     for (const mode of viewportModes) {
@@ -160,6 +165,13 @@ export class MultiViewportScanner {
           // Ignore errors during request ID extraction
         }
 
+        // Save first viewport page for SEO analysis
+        if (mode.name === 'pc_normal') {
+          firstViewportPage = page;
+        } else {
+          await page.close();
+        }
+
         await context.close();
       } catch (error) {
         logger.error(`Failed to scan ${url} with ${mode.name}:`, error);
@@ -170,6 +182,18 @@ export class MultiViewportScanner {
           viewport: mode.name,
         });
       }
+    }
+
+    // Perform SEO analysis on first viewport page
+    if (firstViewportPage) {
+      try {
+        logger.info(`Performing SEO analysis for ${url}`);
+        result.seo = await this.seoChecker.checkSEO(firstViewportPage);
+        logger.info(`SEO score for ${url}: ${result.seo.score}/100`);
+      } catch (error) {
+        logger.error(`Failed to perform SEO analysis for ${url}:`, error);
+      }
+      await firstViewportPage.close();
     }
 
     if (result.issues.some(i => i.severity === 'error')) {

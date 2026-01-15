@@ -272,6 +272,7 @@ export async function runScan(domain: string, db: DatabaseManager, options?: Sca
             load_time: result.loadTime,
             http_status: result.httpStatus,
             request_ids: result.requestIds && Object.keys(result.requestIds).length > 0 ? result.requestIds : undefined,
+            seo: result.seo,
           });
 
           // Analyze screenshot quality asynchronously (don't block the scan)

@@ -84,6 +84,16 @@ export interface PageResult {
     pc_spider?: string;
     mobile_spider?: string;
   };
+  seo?: {
+    score: number;
+    meta: any;
+    openGraph: any;
+    twitterCard: any;
+    structuredData: any;
+    headings: any;
+    images: any;
+    links: any;
+  };
 }
 
 export interface Issue {

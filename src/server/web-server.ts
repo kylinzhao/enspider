@@ -458,6 +458,82 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
     }
   });
 
+  /**
+   * GET /api/config/cleanup-policy - Get cleanup policy
+   */
+  app.get('/api/config/cleanup-policy', (req, res) => {
+    try {
+      const policy = db.getCleanupPolicy();
+      res.json(policy);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch cleanup policy' });
+    }
+  });
+
+  /**
+   * PUT /api/config/cleanup-policy - Update cleanup policy
+   */
+  app.put('/api/config/cleanup-policy', (req, res) => {
+    try {
+      const policy = req.body;
+
+      // Validate policy
+      if (policy.retainDays !== undefined && (typeof policy.retainDays !== 'number' || policy.retainDays < 1)) {
+        res.status(400).json({ error: 'retainDays must be a positive number' });
+        return;
+      }
+      if (policy.maxTests !== undefined && (typeof policy.maxTests !== 'number' || policy.maxTests < 1)) {
+        res.status(400).json({ error: 'maxTests must be a positive number' });
+        return;
+      }
+
+      db.setCleanupPolicy(policy);
+      res.json({ message: 'Cleanup policy updated successfully', policy });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update cleanup policy' });
+    }
+  });
+
+  /**
+   * POST /api/cleanup/run - Manually trigger cleanup
+   */
+  app.post('/api/cleanup/run', async (req, res) => {
+    try {
+      const result = await db.cleanupOldTests();
+      res.json({
+        message: 'Cleanup completed successfully',
+        deleted: result.deleted,
+        archived: result.archived,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to run cleanup' });
+    }
+  });
+
+  /**
+   * GET /api/stats - Get database statistics
+   */
+  app.get('/api/stats', (req, res) => {
+    try {
+      const stats = db.getStats();
+
+      // Format dbSize to human readable
+      const formatSize = (bytes: number): string => {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+        if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+        return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+      };
+
+      res.json({
+        ...stats,
+        dbSizeFormatted: formatSize(stats.dbSize),
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch statistics' });
+    }
+  });
+
   // Serve frontend static files
   app.use(express.static(path.join(__dirname, '../reporter/public')));
 

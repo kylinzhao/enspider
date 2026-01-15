@@ -11,6 +11,7 @@ const progressModal = document.getElementById('progressModal');
 // DOM Elements
 const scanModal = document.getElementById('scanModal');
 const configModal = document.getElementById('configModal');
+const cleanupModal = document.getElementById('cleanupModal');
 const scheduledTaskModal = document.getElementById('scheduledTaskModal');
 const startScanBtn = document.getElementById('startScanBtn');
 const configBtn = document.getElementById('configBtn');
@@ -19,18 +20,22 @@ const refreshBtn = document.getElementById('refreshBtn');
 const testList = document.getElementById('testList');
 const testDetails = document.getElementById('testDetails');
 const scheduledTasksPage = document.getElementById('scheduledTasksPage');
+const dashboardPage = document.getElementById('dashboardPage');
 const backBtn = document.getElementById('backBtn');
 const pageTypeFilter = document.getElementById('pageTypeFilter');
 const issueFilter = document.getElementById('issueFilter');
 const pageResults = document.getElementById('pageResults');
 const lightbox = document.getElementById('lightbox');
 const lightboxClose = document.querySelector('.lightbox-close');
+const refreshDashboardBtn = document.getElementById('refreshDashboardBtn');
+const editCleanupPolicyBtn = document.getElementById('editCleanupPolicyBtn');
+const runCleanupBtn = document.getElementById('runCleanupBtn');
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   initRouter();  // Initialize router first
-  loadTests();
+  showDashboard();  // Show dashboard by default
   initNotifications();  // Initialize notifications
 });
 
@@ -52,7 +57,9 @@ function setupEventListeners() {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       const page = e.target.getAttribute('data-page');
-      if (page === 'tests') {
+      if (page === 'dashboard') {
+        showDashboard();
+      } else if (page === 'tests') {
         navigateTo('/');
       } else if (page === 'scheduled') {
         navigateTo('/scheduled');
@@ -66,6 +73,20 @@ function setupEventListeners() {
 
   // Config
   document.getElementById('configForm').addEventListener('submit', saveGlobalConfig);
+
+  // Dashboard
+  if (refreshDashboardBtn) {
+    refreshDashboardBtn.addEventListener('click', loadDashboard);
+  }
+  if (editCleanupPolicyBtn) {
+    editCleanupPolicyBtn.addEventListener('click', openCleanupModal);
+  }
+  if (runCleanupBtn) {
+    runCleanupBtn.addEventListener('click', runCleanup);
+  }
+
+  // Cleanup policy
+  document.getElementById('cleanupForm').addEventListener('submit', saveCleanupPolicy);
   document.getElementById('taskCronPreset').addEventListener('change', (e) => {
     if (e.target.value) {
       document.getElementById('taskCron').value = e.target.value;
@@ -83,6 +104,8 @@ function setupEventListeners() {
       const modal = e.target.closest('.modal');
       if (modal === scanModal) closeScanModal();
       if (modal === scheduledTaskModal) closeScheduledTaskModal();
+      if (modal === configModal) closeConfigModal();
+      if (modal === cleanupModal) closeCleanupModal();
     });
   });
 
@@ -100,6 +123,12 @@ function setupEventListeners() {
   });
   scheduledTaskModal.addEventListener('click', (e) => {
     if (e.target === scheduledTaskModal) closeScheduledTaskModal();
+  });
+  configModal.addEventListener('click', (e) => {
+    if (e.target === configModal) closeConfigModal();
+  });
+  cleanupModal.addEventListener('click', (e) => {
+    if (e.target === cleanupModal) closeCleanupModal();
   });
 
   // Lightbox
@@ -139,6 +168,12 @@ async function loadTests() {
     }
 
     testList.innerHTML = html;
+
+    // Show test history section
+    document.querySelector('.test-history').style.display = 'block';
+    testDetails.style.display = 'none';
+    scheduledTasksPage.style.display = 'none';
+    dashboardPage.style.display = 'none';
   } catch (error) {
     testList.innerHTML = `<div class="loading">Error loading tests: ${error.message}</div>`;
   }
@@ -645,6 +680,8 @@ async function startScan() {
 function showTestList() {
   testDetails.style.display = 'none';
   document.querySelector('.test-history').style.display = 'block';
+  scheduledTasksPage.style.display = 'none';
+  dashboardPage.style.display = 'none';
   currentTest = null;
   currentPages = [];
   // Update URL to root
@@ -746,6 +783,8 @@ function initRouter() {
       }
     } else if (path === '/scheduled') {
       showScheduledTasksPage();
+    } else if (path === '/' || path === '/dashboard') {
+      showDashboard();
     } else {
       showTestList();
     }
@@ -760,6 +799,9 @@ function initRouter() {
     }
   } else if (path === '/scheduled') {
     showScheduledTasksPage();
+  } else {
+    // Default to dashboard
+    showDashboard();
   }
 }
 
@@ -1576,5 +1618,204 @@ async function saveGlobalConfig(e) {
     alert('✅ Configuration saved successfully!');
   } catch (error) {
     alert('Error saving configuration: ' + error.message);
+  }
+}
+
+// ===== Dashboard Functions =====
+
+function showDashboard() {
+  document.querySelector('.test-history').style.display = 'none';
+  testDetails.style.display = 'none';
+  scheduledTasksPage.style.display = 'none';
+  dashboardPage.style.display = 'block';
+  loadDashboard();
+}
+
+async function loadDashboard() {
+  try {
+    // Load stats
+    const statsResponse = await fetch('/api/stats');
+    const stats = await statsResponse.json();
+
+    document.getElementById('dashTotalTests').textContent = stats.totalTests;
+    document.getElementById('dashTotalPages').textContent = stats.totalPages;
+    document.getElementById('dashTotalIssues').textContent = stats.totalIssues;
+    document.getElementById('dashDbSize').textContent = stats.dbSizeFormatted;
+
+    // Update health status
+    updateHealthStatus(stats);
+
+    // Load recent tests
+    const testsResponse = await fetch('/api/tests?limit=5');
+    const recentTests = await testsResponse.json();
+    renderRecentTests(recentTests);
+
+    // Load cleanup policy
+    const cleanupResponse = await fetch('/api/config/cleanup-policy');
+    const cleanupPolicy = await cleanupResponse.json();
+    updateCleanupPolicyDisplay(cleanupPolicy);
+  } catch (error) {
+    console.error('Error loading dashboard:', error);
+  }
+}
+
+function updateHealthStatus(stats) {
+  // Overall health
+  const overallHealthEl = document.getElementById('overallHealth');
+  if (stats.totalTests === 0) {
+    overallHealthEl.innerHTML = '<span style="color: #718096;">No tests yet</span>';
+  } else if (stats.totalIssues > stats.totalPages * 5) {
+    overallHealthEl.innerHTML = '<span style="color: #e53e3e;">⚠️ Poor - Many issues detected</span>';
+  } else if (stats.totalIssues > 0) {
+    overallHealthEl.innerHTML = '<span style="color: #f6ad55;">⚡ Fair - Some issues detected</span>';
+  } else {
+    overallHealthEl.innerHTML = '<span style="color: #48bb78;">✓ Good - No issues</span>';
+  }
+
+  // Recent tests health
+  const recentTestsHealthEl = document.getElementById('recentTestsHealth');
+  recentTestsHealthEl.innerHTML = '<span style="color: #48bb78;">✓ Active</span>';
+
+  // Data retention health
+  const dataRetentionHealthEl = document.getElementById('dataRetentionHealth');
+  const dbSizeMB = stats.dbSize / (1024 * 1024);
+  if (dbSizeMB > 500) {
+    dataRetentionHealthEl.innerHTML = `<span style="color: #e53e3e;">⚠️ Large (${stats.dbSizeFormatted})</span>`;
+  } else if (dbSizeMB > 100) {
+    dataRetentionHealthEl.innerHTML = `<span style="color: #f6ad55;">⚡ Medium (${stats.dbSizeFormatted})</span>`;
+  } else {
+    dataRetentionHealthEl.innerHTML = `<span style="color: #48bb78;">✓ Normal (${stats.dbSizeFormatted})</span>`;
+  }
+}
+
+function renderRecentTests(tests) {
+  const container = document.getElementById('recentTestsList');
+
+  if (tests.length === 0) {
+    container.innerHTML = '<p style="color: #718096;">No tests found</p>';
+    return;
+  }
+
+  container.innerHTML = tests.map(test => {
+    const date = new Date(test.timestamp);
+    const timeStr = date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const statusColor = test.status === 'completed' ? '#48bb78' : test.status === 'running' ? '#667eea' : '#e53e3e';
+    const hasIssues = test.total_issues > 0;
+
+    return `
+      <div class="recent-test-item" onclick="viewTest(${test.id})" style="cursor: pointer; padding: 0.75rem; border-radius: 6px; background: #f7fafc; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <div style="font-weight: 500;">#${test.id} - ${test.domain}</div>
+          <div style="font-size: 0.75rem; color: #718096;">${timeStr}</div>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-size: 0.75rem; color: ${statusColor}; font-weight: 600;">${test.status}</div>
+          <div style="font-size: 0.75rem; ${hasIssues ? 'color: #e53e3e;' : 'color: #48bb78;'}">
+            ${hasIssues ? `⚠️ ${test.total_issues} issues` : '✓ No issues'}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function updateCleanupPolicyDisplay(policy) {
+  const statusEl = document.getElementById('cleanupStatus');
+  const retainDaysEl = document.getElementById('cleanupRetainDays');
+  const maxTestsEl = document.getElementById('cleanupMaxTests');
+  const archiveEl = document.getElementById('cleanupArchive');
+
+  if (policy.enabled && policy.autoCleanup) {
+    statusEl.innerHTML = '<span style="color: #48bb78;">✓ Enabled</span>';
+  } else {
+    statusEl.innerHTML = '<span style="color: #a0aec0;">✗ Disabled</span>';
+  }
+
+  retainDaysEl.textContent = `${policy.retainDays} days`;
+  maxTestsEl.textContent = policy.maxTests.toString();
+  archiveEl.textContent = policy.archiveBeforeDelete ? 'Yes' : 'No';
+}
+
+// ===== Cleanup Policy Functions =====
+
+function openCleanupModal() {
+  cleanupModal.classList.add('active');
+  loadCleanupPolicy();
+}
+
+function closeCleanupModal() {
+  cleanupModal.classList.remove('active');
+}
+
+async function loadCleanupPolicy() {
+  try {
+    const response = await fetch('/api/config/cleanup-policy');
+    const policy = await response.json();
+
+    document.getElementById('cleanupEnabled').checked = policy.enabled;
+    document.getElementById('cleanupRetainDaysInput').value = policy.retainDays;
+    document.getElementById('cleanupMaxTestsInput').value = policy.maxTests;
+    document.getElementById('cleanupArchive').checked = policy.archiveBeforeDelete;
+  } catch (error) {
+    console.error('Error loading cleanup policy:', error);
+  }
+}
+
+async function saveCleanupPolicy(e) {
+  e.preventDefault();
+
+  const policy = {
+    enabled: document.getElementById('cleanupEnabled').checked,
+    retainDays: parseInt(document.getElementById('cleanupRetainDaysInput').value),
+    maxTests: parseInt(document.getElementById('cleanupMaxTestsInput').value),
+    autoCleanup: document.getElementById('cleanupEnabled').checked,
+    archiveBeforeDelete: document.getElementById('cleanupArchive').checked,
+  };
+
+  try {
+    const response = await fetch('/api/config/cleanup-policy', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(policy)
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      alert('Failed to save cleanup policy: ' + (error.error || 'Unknown error'));
+      return;
+    }
+
+    closeCleanupModal();
+    loadDashboard(); // Refresh dashboard to show updated policy
+    alert('✅ Cleanup policy saved successfully!');
+  } catch (error) {
+    alert('Error saving cleanup policy: ' + error.message);
+  }
+}
+
+async function runCleanup() {
+  if (!confirm('Are you sure you want to run cleanup now? This will delete old test data.')) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/cleanup/run', {
+      method: 'POST'
+    });
+
+    const result = await response.json();
+
+    alert(`✅ Cleanup completed!\n\nDeleted: ${result.deleted} tests\nArchived: ${result.archived} tests`);
+
+    // Refresh dashboard
+    loadDashboard();
+  } catch (error) {
+    alert('Error running cleanup: ' + error.message);
   }
 }
