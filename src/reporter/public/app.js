@@ -5,39 +5,72 @@ let progressEventSource = null;
 let progressStartTime = null;
 let currentScheduledTask = null; // For editing
 
-// DOM Elements
-const progressModal = document.getElementById('progressModal');
+// DOM Elements - will be initialized in DOMContentLoaded
+let progressModal, scanModal, configModal, cleanupModal, scheduledTaskModal;
+let startScanBtn, configBtn, confirmScanBtn, refreshBtn;
+let testList, testDetails, scheduledTasksPage, backBtn;
+let pageTypeFilter, issueFilter, pageResults;
+let testStatusFilter, testIssueFilter;
+let lightbox, lightboxClose;
+let editCleanupPolicyBtn, runCleanupBtn, deleteAllBtn, deleteTestBtn;
 
-// DOM Elements
-const scanModal = document.getElementById('scanModal');
-const configModal = document.getElementById('configModal');
-const cleanupModal = document.getElementById('cleanupModal');
-const scheduledTaskModal = document.getElementById('scheduledTaskModal');
-const startScanBtn = document.getElementById('startScanBtn');
-const configBtn = document.getElementById('configBtn');
-const confirmScanBtn = document.getElementById('confirmScanBtn');
-const refreshBtn = document.getElementById('refreshBtn');
-const testList = document.getElementById('testList');
-const testDetails = document.getElementById('testDetails');
-const scheduledTasksPage = document.getElementById('scheduledTasksPage');
-const dashboardPage = document.getElementById('dashboardPage');
-const backBtn = document.getElementById('backBtn');
-const pageTypeFilter = document.getElementById('pageTypeFilter');
-const issueFilter = document.getElementById('issueFilter');
-const pageResults = document.getElementById('pageResults');
-const lightbox = document.getElementById('lightbox');
-const lightboxClose = document.querySelector('.lightbox-close');
-const refreshDashboardBtn = document.getElementById('refreshDashboardBtn');
-const editCleanupPolicyBtn = document.getElementById('editCleanupPolicyBtn');
-const runCleanupBtn = document.getElementById('runCleanupBtn');
+// Initialize DOM elements
+function initializeDOMElements() {
+  progressModal = document.getElementById('progressModal');
+  scanModal = document.getElementById('scanModal');
+  configModal = document.getElementById('configModal');
+  cleanupModal = document.getElementById('cleanupModal');
+  scheduledTaskModal = document.getElementById('scheduledTaskModal');
+  startScanBtn = document.getElementById('startScanBtn');
+  configBtn = document.getElementById('configBtn');
+  confirmScanBtn = document.getElementById('confirmScanBtn');
+  refreshBtn = document.getElementById('refreshBtn');
+  testList = document.getElementById('testList');
+  testDetails = document.getElementById('testDetails');
+  scheduledTasksPage = document.getElementById('scheduledTasksPage');
+  backBtn = document.getElementById('backBtn');
+  pageTypeFilter = document.getElementById('pageTypeFilter');
+  issueFilter = document.getElementById('issueFilter');
+  pageResults = document.getElementById('pageResults');
+  testStatusFilter = document.getElementById('testStatusFilter');
+  testIssueFilter = document.getElementById('testIssueFilter');
+  lightbox = document.getElementById('lightbox');
+  lightboxClose = document.querySelector('.lightbox-close');
+  editCleanupPolicyBtn = document.getElementById('editCleanupPolicyBtn');
+  runCleanupBtn = document.getElementById('runCleanupBtn');
+  deleteAllBtn = document.getElementById('deleteAllBtn');
+  deleteTestBtn = document.getElementById('deleteTestBtn');
+
+  // Verify critical elements exist
+  if (!testList || !testStatusFilter || !testIssueFilter) {
+    console.error('[ERROR] Critical elements not found:', {
+      testList: !!testList,
+      testStatusFilter: !!testStatusFilter,
+      testIssueFilter: !!testIssueFilter
+    });
+  }
+}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('[DEBUG] DOMContentLoaded fired');
+  console.log('[DEBUG] Current URL:', window.location.pathname);
+  initializeDOMElements();  // Initialize all DOM element references first
+  console.log('[DEBUG] DOM elements initialized, testList:', !!testList);
   setupEventListeners();
   initRouter();  // Initialize router first
-  showDashboard();  // Show dashboard by default
+  console.log('[DEBUG] Calling loadTests()...');
+  loadTests();  // Load test data immediately for default page
   initNotifications();  // Initialize notifications
 });
+
+// Debug: expose loadTests to window for manual testing
+window.loadTestsDebug = loadTests;
+window.debug = {
+  loadTests: loadTests,
+  testList: () => testList,
+  allTests: () => allTests
+};
 
 function setupEventListeners() {
   startScanBtn.addEventListener('click', openScanModal);
@@ -45,22 +78,26 @@ function setupEventListeners() {
   confirmScanBtn.addEventListener('click', startScan);
   refreshBtn.addEventListener('click', loadTests);
   backBtn.addEventListener('click', () => {
-    navigateTo('/');  // Use router navigation
+    navigateToTests();  // Go back to tests list
   });
   pageTypeFilter.addEventListener('change', filterPages);
   issueFilter.addEventListener('change', filterPages);
-  deleteAllBtn.addEventListener('click', deleteAllTests);
-  deleteTestBtn.addEventListener('click', deleteCurrentTest);
+  testStatusFilter.addEventListener('change', filterTests);
+  testIssueFilter.addEventListener('change', filterTests);
+  if (deleteAllBtn) {
+    deleteAllBtn.addEventListener('click', deleteAllTests);
+  }
+  if (deleteTestBtn) {
+    deleteTestBtn.addEventListener('click', deleteCurrentTest);
+  }
 
   // Navigation links
   document.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       const page = e.target.getAttribute('data-page');
-      if (page === 'dashboard') {
-        showDashboard();
-      } else if (page === 'tests') {
-        navigateTo('/');
+      if (page === 'tests') {
+        navigateToTests();
       } else if (page === 'scheduled') {
         navigateTo('/scheduled');
       }
@@ -74,10 +111,7 @@ function setupEventListeners() {
   // Config
   document.getElementById('configForm').addEventListener('submit', saveGlobalConfig);
 
-  // Dashboard
-  if (refreshDashboardBtn) {
-    refreshDashboardBtn.addEventListener('click', loadDashboard);
-  }
+  // Cleanup policy (removed from dashboard, still accessible via config)
   if (editCleanupPolicyBtn) {
     editCleanupPolicyBtn.addEventListener('click', openCleanupModal);
   }
@@ -110,12 +144,15 @@ function setupEventListeners() {
   });
 
   // Select all domains functionality
-  document.getElementById('selectAllDomains').addEventListener('change', (e) => {
-    const checkboxes = document.querySelectorAll('.domain-checkbox');
-    checkboxes.forEach(cb => {
-      cb.checked = e.target.checked;
+  const selectAllDomainsInput = document.getElementById('selectAllDomains');
+  if (selectAllDomainsInput) {
+    selectAllDomainsInput.addEventListener('change', (e) => {
+      const checkboxes = document.querySelectorAll('.domain-checkbox');
+      checkboxes.forEach(cb => {
+        cb.checked = e.target.checked;
+      });
     });
-  });
+  }
 
   // Modal close on outside click
   scanModal.addEventListener('click', (e) => {
@@ -138,45 +175,89 @@ function setupEventListeners() {
   });
 }
 
+// Global variable to store all loaded tests
+let allTests = [];
+
 // Load tests
 async function loadTests() {
+  console.log('[DEBUG] loadTests() called');
+  console.log('[DEBUG] testList element:', testList);
+
   try {
+    if (!testList) {
+      throw new Error('testList element not found');
+    }
+
     testList.innerHTML = '<div class="loading">Loading...</div>';
+    console.log('[DEBUG] Fetching /api/tests...');
 
     const response = await fetch('/api/tests');
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
     const tests = await response.json();
+    console.log('[DEBUG] Loaded tests:', tests.length);
+
+    // Store all tests for filtering
+    allTests = tests;
 
     if (tests.length === 0) {
       testList.innerHTML = '<p class="loading">No tests found. Start a new scan to begin.</p>';
       return;
     }
 
-    // Group tests by date
-    const groupedTests = groupTestsByDate(tests);
-
-    // Render grouped tests
-    let html = '';
-    for (const [date, dateTests] of Object.entries(groupedTests)) {
-      html += `
-        <div class="date-group">
-          <h3 class="date-header">${date}</h3>
-          <div class="date-group-tests">
-            ${dateTests.map(test => renderTestCard(test)).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    testList.innerHTML = html;
-
-    // Show test history section
-    document.querySelector('.test-history').style.display = 'block';
-    testDetails.style.display = 'none';
-    scheduledTasksPage.style.display = 'none';
-    dashboardPage.style.display = 'none';
+    // Apply filters and render
+    filterTests();
+    console.log('[DEBUG] Tests rendered successfully');
   } catch (error) {
-    testList.innerHTML = `<div class="loading">Error loading tests: ${error.message}</div>`;
+    console.error('[DEBUG] Error loading tests:', error);
+    if (testList) {
+      testList.innerHTML = `<div class="loading">Error loading tests: ${error.message}</div>`;
+    }
   }
+}
+
+// Filter tests
+function filterTests() {
+  const statusFilterValue = testStatusFilter.value;
+  const issueFilterValue = testIssueFilter.value;
+
+  let filtered = allTests;
+
+  // Filter by status
+  if (statusFilterValue !== 'all') {
+    filtered = filtered.filter(t => t.status === statusFilterValue);
+  }
+
+  // Filter by issues
+  if (issueFilterValue === 'has-issues') {
+    filtered = filtered.filter(t => t.total_issues > 0);
+  }
+
+  // Render filtered tests
+  if (filtered.length === 0) {
+    testList.innerHTML = '<p class="loading">No tests match the current filters.</p>';
+    return;
+  }
+
+  // Group tests by date
+  const groupedTests = groupTestsByDate(filtered);
+
+  // Render grouped tests
+  let html = '';
+  for (const [date, dateTests] of Object.entries(groupedTests)) {
+    html += `
+      <div class="date-group">
+        <h3 class="date-header">${date}</h3>
+        <div class="date-group-tests">
+          ${dateTests.map(test => renderTestCard(test)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  testList.innerHTML = html;
 }
 
 // Group tests by date
@@ -310,8 +391,9 @@ async function viewTest(testId, updateUrl = true) {
     document.getElementById('categories').textContent = currentTest.categories;
     document.getElementById('duration').textContent = formatDuration(currentTest.duration_ms);
 
-    // Show details
+    // Hide all other pages and show only details
     document.querySelector('.test-history').style.display = 'none';
+    scheduledTasksPage.style.display = 'none';
     testDetails.style.display = 'block';
 
     // Render pages
@@ -341,7 +423,7 @@ function renderPages(pages) {
   // Filter by issues
   if (issueFilterValue === 'has-issues') {
     filtered = filtered.filter(p => {
-      const rawScreenshotIssues = page.screenshot_issues || {};
+      const rawScreenshotIssues = p.screenshot_issues || {};
       const qualityProblems = Object.entries(rawScreenshotIssues).reduce((acc, [viewport, issue]) => {
         if (!issue) return acc;
         const isProblem = issue.severity === 'error' || issue.severity === 'warning' ||
@@ -352,7 +434,7 @@ function renderPages(pages) {
         return acc;
       }, {});
       const hasScreenshotIssues = Object.keys(qualityProblems).length > 0;
-      return hasScreenshotIssues || (page.issues_count > 0);
+      return hasScreenshotIssues || (p.issues_count > 0);
     });
   }
 
@@ -621,11 +703,11 @@ function closeScanModal() {
 }
 
 async function startScan() {
-  // Get selected domains
+  // Get selected domain codes (e.g., 'en', 'ru', 'ar', 'fr')
   const checkboxes = document.querySelectorAll('.domain-checkbox:checked');
-  const domains = Array.from(checkboxes).map(cb => cb.value);
+  const domainCodes = Array.from(checkboxes).map(cb => cb.value);
 
-  if (domains.length === 0) {
+  if (domainCodes.length === 0) {
     alert('Please select at least one domain');
     return;
   }
@@ -633,43 +715,39 @@ async function startScan() {
   try {
     closeScanModal();
 
-    // Start scans for all selected domains
-    const responses = await Promise.all(
-      domains.map(domain =>
-        fetch('/api/scan/start', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ domain })
-        })
-      )
-    );
+    // Use the first domain as the primary domain for page filtering
+    const primaryDomainCode = domainCodes[0];
+    const primaryDomain = `${primaryDomainCode}.guazi.com`;
 
-    const allSuccessful = responses.every(r => r.ok);
+    // Start a single scan with multiple domains
+    const response = await fetch('/api/scan/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        domain: primaryDomain,
+        domains: domainCodes  // Send domain codes array
+      })
+    });
 
-    if (allSuccessful) {
-      // Show progress for the first domain
-      showProgressModal(domains[0]);
+    if (response.ok) {
+      // Show progress for the scan
+      showProgressModal(primaryDomain);
 
-      // Wait a bit for tests to be created
+      // Wait for test to be created and connect to progress
       setTimeout(() => {
         loadTests();
 
-        // Connect to progress for each domain
-        domains.forEach((domain, index) => {
-          setTimeout(() => {
-            fetch('/api/tests?limit=10')
-              .then(r => r.json())
-              .then(tests => {
-                const test = tests.find(t => t.domain === domain && t.status === 'running');
-            if (test && index === 0) {
+        fetch('/api/tests?limit=10')
+          .then(r => r.json())
+          .then(tests => {
+            const test = tests.find(t => t.domain === primaryDomain && t.status === 'running');
+            if (test) {
               connectProgress(test.id);
             }
-              });
-          }, 500 + index * 200);
-        });
+          });
       }, 500);
     } else {
-      alert('Failed to start some scans');
+      alert('Failed to start scan');
     }
   } catch (error) {
     alert('Error starting scan: ' + error.message);
@@ -681,12 +759,11 @@ function showTestList() {
   testDetails.style.display = 'none';
   document.querySelector('.test-history').style.display = 'block';
   scheduledTasksPage.style.display = 'none';
-  dashboardPage.style.display = 'none';
   currentTest = null;
   currentPages = [];
-  // Update URL to root
-  if (window.location.pathname !== '/') {
-    window.history.pushState({}, '', '/');
+  // Update URL to indicate we're on tests page
+  if (window.location.pathname !== '/tests') {
+    window.history.pushState({}, '', '/tests');
   }
 }
 
@@ -783,10 +860,13 @@ function initRouter() {
       }
     } else if (path === '/scheduled') {
       showScheduledTasksPage();
-    } else if (path === '/' || path === '/dashboard') {
-      showDashboard();
+    } else if (path === '/' || path === '/dashboard' || path === '/tests') {
+      // Just show the tests section, data is already loaded
+      testDetails.style.display = 'none';
+      document.querySelector('.test-history').style.display = 'block';
+      scheduledTasksPage.style.display = 'none';
     } else {
-      showTestList();
+      navigateToTests();
     }
   });
 
@@ -800,15 +880,17 @@ function initRouter() {
   } else if (path === '/scheduled') {
     showScheduledTasksPage();
   } else {
-    // Default to dashboard
-    showDashboard();
+    // Default to tests page - just show the section, data will be loaded separately
+    testDetails.style.display = 'none';
+    document.querySelector('.test-history').style.display = 'block';
+    scheduledTasksPage.style.display = 'none';
   }
 }
 
 function navigateTo(path, state = null) {
-  if (path === '/') {
-    window.history.pushState({}, '', '/');
-    showTestList();
+  if (path === '/' || path === '/tests') {
+    window.history.pushState({}, '', path === '/' ? '/tests' : path);
+    navigateToTests();
   } else if (path.startsWith('/test/')) {
     const testId = parseInt(path.split('/')[2]);
     window.history.pushState({ testId }, '', path);
@@ -1623,123 +1705,38 @@ async function saveGlobalConfig(e) {
 
 // ===== Dashboard Functions =====
 
-function showDashboard() {
-  document.querySelector('.test-history').style.display = 'none';
+// Navigate to tests page
+function navigateToTests() {
+  testDetails.style.display = 'none';
+  document.querySelector('.test-history').style.display = 'block';
+  scheduledTasksPage.style.display = 'none';
+  currentTest = null;
+  currentPages = [];
+
+  // Update URL to indicate we're on tests page
+  if (window.location.pathname !== '/tests') {
+    window.history.pushState({}, '', '/tests');
+  }
+
+  // Load tests after showing the section
+  loadTests();
+}
+
+// Navigate to tests page with issues filter
+function navigateToTestsWithIssues() {
+  document.querySelector('.test-history').style.display = 'block';
   testDetails.style.display = 'none';
   scheduledTasksPage.style.display = 'none';
-  dashboardPage.style.display = 'block';
-  loadDashboard();
-}
 
-async function loadDashboard() {
-  try {
-    // Load stats
-    const statsResponse = await fetch('/api/stats');
-    const stats = await statsResponse.json();
-
-    document.getElementById('dashTotalTests').textContent = stats.totalTests;
-    document.getElementById('dashTotalPages').textContent = stats.totalPages;
-    document.getElementById('dashTotalIssues').textContent = stats.totalIssues;
-    document.getElementById('dashDbSize').textContent = stats.dbSizeFormatted;
-
-    // Update health status
-    updateHealthStatus(stats);
-
-    // Load recent tests
-    const testsResponse = await fetch('/api/tests?limit=5');
-    const recentTests = await testsResponse.json();
-    renderRecentTests(recentTests);
-
-    // Load cleanup policy
-    const cleanupResponse = await fetch('/api/config/cleanup-policy');
-    const cleanupPolicy = await cleanupResponse.json();
-    updateCleanupPolicyDisplay(cleanupPolicy);
-  } catch (error) {
-    console.error('Error loading dashboard:', error);
-  }
-}
-
-function updateHealthStatus(stats) {
-  // Overall health
-  const overallHealthEl = document.getElementById('overallHealth');
-  if (stats.totalTests === 0) {
-    overallHealthEl.innerHTML = '<span style="color: #718096;">No tests yet</span>';
-  } else if (stats.totalIssues > stats.totalPages * 5) {
-    overallHealthEl.innerHTML = '<span style="color: #e53e3e;">⚠️ Poor - Many issues detected</span>';
-  } else if (stats.totalIssues > 0) {
-    overallHealthEl.innerHTML = '<span style="color: #f6ad55;">⚡ Fair - Some issues detected</span>';
-  } else {
-    overallHealthEl.innerHTML = '<span style="color: #48bb78;">✓ Good - No issues</span>';
-  }
-
-  // Recent tests health
-  const recentTestsHealthEl = document.getElementById('recentTestsHealth');
-  recentTestsHealthEl.innerHTML = '<span style="color: #48bb78;">✓ Active</span>';
-
-  // Data retention health
-  const dataRetentionHealthEl = document.getElementById('dataRetentionHealth');
-  const dbSizeMB = stats.dbSize / (1024 * 1024);
-  if (dbSizeMB > 500) {
-    dataRetentionHealthEl.innerHTML = `<span style="color: #e53e3e;">⚠️ Large (${stats.dbSizeFormatted})</span>`;
-  } else if (dbSizeMB > 100) {
-    dataRetentionHealthEl.innerHTML = `<span style="color: #f6ad55;">⚡ Medium (${stats.dbSizeFormatted})</span>`;
-  } else {
-    dataRetentionHealthEl.innerHTML = `<span style="color: #48bb78;">✓ Normal (${stats.dbSizeFormatted})</span>`;
-  }
-}
-
-function renderRecentTests(tests) {
-  const container = document.getElementById('recentTestsList');
-
-  if (tests.length === 0) {
-    container.innerHTML = '<p style="color: #718096;">No tests found</p>';
-    return;
-  }
-
-  container.innerHTML = tests.map(test => {
-    const date = new Date(test.timestamp);
-    const timeStr = date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-
-    const statusColor = test.status === 'completed' ? '#48bb78' : test.status === 'running' ? '#667eea' : '#e53e3e';
-    const hasIssues = test.total_issues > 0;
-
-    return `
-      <div class="recent-test-item" onclick="viewTest(${test.id})" style="cursor: pointer; padding: 0.75rem; border-radius: 6px; background: #f7fafc; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
-        <div>
-          <div style="font-weight: 500;">#${test.id} - ${test.domain}</div>
-          <div style="font-size: 0.75rem; color: #718096;">${timeStr}</div>
-        </div>
-        <div style="text-align: right;">
-          <div style="font-size: 0.75rem; color: ${statusColor}; font-weight: 600;">${test.status}</div>
-          <div style="font-size: 0.75rem; ${hasIssues ? 'color: #e53e3e;' : 'color: #48bb78;'}">
-            ${hasIssues ? `⚠️ ${test.total_issues} issues` : '✓ No issues'}
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function updateCleanupPolicyDisplay(policy) {
-  const statusEl = document.getElementById('cleanupStatus');
-  const retainDaysEl = document.getElementById('cleanupRetainDays');
-  const maxTestsEl = document.getElementById('cleanupMaxTests');
-  const archiveEl = document.getElementById('cleanupArchive');
-
-  if (policy.enabled && policy.autoCleanup) {
-    statusEl.innerHTML = '<span style="color: #48bb78;">✓ Enabled</span>';
-  } else {
-    statusEl.innerHTML = '<span style="color: #a0aec0;">✗ Disabled</span>';
-  }
-
-  retainDaysEl.textContent = `${policy.retainDays} days`;
-  maxTestsEl.textContent = policy.maxTests.toString();
-  archiveEl.textContent = policy.archiveBeforeDelete ? 'Yes' : 'No';
+  // Load tests first, then set filter
+  loadTests().then(() => {
+    // Set issue filter after tests are loaded
+    setTimeout(() => {
+      issueFilter.value = 'has-issues';
+      // Trigger filter change event
+      issueFilter.dispatchEvent(new Event('change'));
+    }, 100);
+  });
 }
 
 // ===== Cleanup Policy Functions =====
@@ -1792,7 +1789,6 @@ async function saveCleanupPolicy(e) {
     }
 
     closeCleanupModal();
-    loadDashboard(); // Refresh dashboard to show updated policy
     alert('✅ Cleanup policy saved successfully!');
   } catch (error) {
     alert('Error saving cleanup policy: ' + error.message);
@@ -1813,8 +1809,8 @@ async function runCleanup() {
 
     alert(`✅ Cleanup completed!\n\nDeleted: ${result.deleted} tests\nArchived: ${result.archived} tests`);
 
-    // Refresh dashboard
-    loadDashboard();
+    // Refresh tests list
+    loadTests();
   } catch (error) {
     alert('Error running cleanup: ' + error.message);
   }

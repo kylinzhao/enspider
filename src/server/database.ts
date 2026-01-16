@@ -52,6 +52,8 @@ export interface PageRecord {
     images: any;
     links: any;
   };
+  original_url?: string;
+  original_domain?: string;
 }
 
 export interface IssueRecord {
@@ -183,6 +185,29 @@ export class DatabaseManager {
       // Column might already exist
     }
 
+    // Add original_url and original_domain columns for multi-domain support
+    try {
+      const columns = this.db.pragma('table_info(pages)') as any[];
+      const hasOriginalUrl = columns.some((col) => col.name === 'original_url');
+
+      if (!hasOriginalUrl) {
+        this.db.exec('ALTER TABLE pages ADD COLUMN original_url TEXT');
+      }
+    } catch (error) {
+      // Column might already exist
+    }
+
+    try {
+      const columns = this.db.pragma('table_info(pages)') as any[];
+      const hasOriginalDomain = columns.some((col) => col.name === 'original_domain');
+
+      if (!hasOriginalDomain) {
+        this.db.exec('ALTER TABLE pages ADD COLUMN original_domain TEXT');
+      }
+    } catch (error) {
+      // Column might already exist
+    }
+
     // Issues table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS issues (
@@ -242,6 +267,50 @@ export class DatabaseManager {
         .run('cleanup_policy', JSON.stringify(defaultPolicy), Date.now());
     }
 
+    // Add domains column to tests table for multi-domain support
+    try {
+      const columns = this.db.pragma('table_info(tests)') as any[];
+      const hasDomains = columns.some((col) => col.name === 'domains');
+
+      if (!hasDomains) {
+        this.db.exec('ALTER TABLE tests ADD COLUMN domains TEXT');
+      }
+    } catch (error) {
+      // Column might already exist
+    }
+
+    // Insert default multi-domain config if not exists
+    let existingMultiDomainConfig = this.db.prepare('SELECT * FROM global_config WHERE key = ?').get('multi_domains') as any;
+    if (!existingMultiDomainConfig) {
+      const defaultMultiDomain = {
+        enabled: true,
+        domains: ['en', 'ar', 'fr', 'ru'],  // Default first 4 domains
+      };
+      this.db.prepare('INSERT INTO global_config (key, value, updated_at) VALUES (?, ?, ?)')
+        .run('multi_domains', JSON.stringify(defaultMultiDomain), Date.now());
+    } else {
+      // Migrate existing config to remove 'de' if present and reorder to match UI
+      try {
+        const config = JSON.parse(existingMultiDomainConfig.value);
+        if (config.domains) {
+          // Filter out 'de' and keep only valid domains in correct order
+          const validDomains = ['en', 'ar', 'fr', 'ru', 'es'];
+          const filteredDomains = config.domains.filter((d: string) => validDomains.includes(d));
+          // Reorder to match preferred order: en, ar, fr, ru, es
+          const reorderedDomains = validDomains.filter(d => filteredDomains.includes(d));
+
+          if (JSON.stringify(filteredDomains) !== JSON.stringify(reorderedDomains)) {
+            config.domains = reorderedDomains;
+            this.db.prepare('UPDATE global_config SET value = ?, updated_at = ? WHERE key = ?')
+              .run(JSON.stringify(config), Date.now(), 'multi_domains');
+            console.log('[Database] Migrated multi-domain config to:', reorderedDomains);
+          }
+        }
+      } catch (error) {
+        console.error('[Database] Failed to migrate multi-domain config:', error);
+      }
+    }
+
     // Create indexes
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_tests_timestamp ON tests(timestamp);
@@ -252,12 +321,13 @@ export class DatabaseManager {
   }
 
   // Test operations
-  createTest(domain: string): number {
+  createTest(domain: string, domains?: string[]): number {
+    const domainsJson = domains ? JSON.stringify(domains) : null;
     const stmt = this.db.prepare(`
-      INSERT INTO tests (domain, timestamp, status)
-      VALUES (?, ?, 'running')
+      INSERT INTO tests (domain, domains, timestamp, status)
+      VALUES (?, ?, ?, 'running')
     `);
-    const result = stmt.run(domain, Date.now());
+    const result = stmt.run(domain, domainsJson, Date.now());
     return result.lastInsertRowid as number;
   }
 
@@ -310,8 +380,8 @@ export class DatabaseManager {
   // Page operations
   createPage(page: Omit<PageRecord, 'id'>): number {
     const stmt = this.db.prepare(`
-      INSERT INTO pages (test_id, url, domain, page_type, category, status, issues_count, screenshots, screenshot_issues, load_time, http_status, request_ids, seo)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO pages (test_id, url, domain, page_type, category, status, issues_count, screenshots, screenshot_issues, load_time, http_status, request_ids, seo, original_url, original_domain)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       page.test_id,
@@ -326,7 +396,9 @@ export class DatabaseManager {
       page.load_time || null,
       page.http_status || null,
       page.request_ids ? JSON.stringify(page.request_ids) : null,
-      page.seo ? JSON.stringify(page.seo) : null
+      page.seo ? JSON.stringify(page.seo) : null,
+      page.original_url || null,
+      page.original_domain || null
     );
     return result.lastInsertRowid as number;
   }
@@ -515,6 +587,30 @@ export class DatabaseManager {
 
   setCustomUrls(urls: string[]): void {
     this.setGlobalConfig('custom_urls', JSON.stringify(urls));
+  }
+
+  // Multi-domain operations
+  getMultiDomainsConfig(): any {
+    const value = this.getGlobalConfig('multi_domains');
+    if (!value) {
+      // Return default config
+      return {
+        enabled: true,
+        domains: ['en', 'ar', 'fr', 'ru'],  // Default first 4 domains
+      };
+    }
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {
+        enabled: true,
+        domains: ['en', 'ar', 'fr', 'ru'],  // Default first 4 domains
+      };
+    }
+  }
+
+  setMultiDomainsConfig(config: any): void {
+    this.setGlobalConfig('multi_domains', JSON.stringify(config));
   }
 
   // Cleanup policy operations

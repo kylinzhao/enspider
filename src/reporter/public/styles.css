@@ -1514,3 +1514,182 @@ main {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* Clickable stat card */
+.stat-card.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.stat-card.clickable:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
+}
+
+.stat-card.clickable:active {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* ===== Scan Modal Styles ===== */
+.modal-content-scan {
+  max-width: 600px;
+}
+
+.modal-content-scan .modal-header h2 {
+  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.scan-section {
+  margin-bottom: 1.5rem;
+}
+
+.scan-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.scan-section-header h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin: 0;
+}
+
+.scan-section-icon {
+  font-size: 1.5rem;
+}
+
+.domain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.domain-checkbox-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: #f7fafc;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.domain-checkbox-label:hover {
+  background: #edf2f7;
+  border-color: #cbd5e0;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.domain-checkbox-label:has(input:checked) {
+  background: linear-gradient(135deg, #f0f4ff 0%, #e6eeff 100%);
+  border-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+}
+
+.domain-checkbox-label input[type="checkbox"] {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: #667eea;
+}
+
+.domain-code {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #667eea;
+  letter-spacing: 0.05em;
+}
+
+.domain-checkbox-label:has(input:checked) .domain-code {
+  color: #5568d3;
+}
+
+.domain-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #4a5568;
+  text-align: center;
+}
+
+.domain-checkbox-label:has(input:checked) .domain-name {
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.scan-info-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.scan-info-card {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+  border-radius: 12px;
+  border-left: 4px solid #667eea;
+}
+
+.scan-info-card-icon {
+  font-size: 1.75rem;
+  flex-shrink: 0;
+}
+
+.scan-info-card-content {
+  flex: 1;
+}
+
+.scan-info-card-content h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #2c3e50;
+  margin: 0 0 0.5rem 0;
+}
+
+.scan-info-card-content p {
+  font-size: 0.875rem;
+  color: #718096;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.scan-info-card-content a {
+  color: #667eea;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.scan-info-card-content a:hover {
+  text-decoration: underline;
+}
+
+.scan-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  padding-top: 1rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.btn-large {
+  padding: 0.875rem 2rem;
+  font-size: 1.125rem;
+  font-weight: 700;
+}

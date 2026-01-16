@@ -12,8 +12,7 @@
       <h1>🕷️ Enspider</h1>
       <p class="subtitle">Website Accessibility Monitor</p>
       <nav class="header-nav">
-        <a href="/" class="nav-link" data-page="dashboard">Dashboard</a>
-        <a href="/" class="nav-link" data-page="tests">Tests</a>
+        <a href="/tests" class="nav-link active" data-page="tests">Tests</a>
         <a href="/scheduled" class="nav-link" data-page="scheduled">Scheduled Tasks</a>
       </nav>
     </div>
@@ -83,50 +82,71 @@
 
     <!-- Scan Modal -->
     <div id="scanModal" class="modal">
-      <div class="modal-content">
+      <div class="modal-content modal-content-scan">
         <div class="modal-header">
-          <h2>Start New Scan</h2>
+          <h2>🚀 Start New Scan</h2>
           <button class="close-btn">&times;</button>
         </div>
         <div class="modal-body">
-          <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Select Domains:</label>
-          <div style="margin-bottom: 1rem; display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
-            <label style="display: flex; align-items: center; gap: 0.5rem;">
-              <input type="checkbox" class="domain-checkbox" value="en.guazi.com" checked>
-              <span>en.guazi.com</span>
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem;">
-              <input type="checkbox" class="domain-checkbox" value="ar.guazi.com">
-              <span>ar.guazi.com</span>
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem;">
-              <input type="checkbox" class="domain-checkbox" value="fr.guazi.com">
-              <span>fr.guazi.com</span>
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem;">
-              <input type="checkbox" class="domain-checkbox" value="ru.guazi.com">
-              <span>ru.guazi.com</span>
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem;">
-              <input type="checkbox" class="domain-checkbox" value="es.guazi.com">
-              <span>es.guazi.com</span>
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem;">
-              <input type="checkbox" id="selectAllDomains">
-              <span style="font-weight: 600;">Select All</span>
-            </label>
-          </div>
-          <div style="margin-bottom: 1rem; padding: 1rem; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
-            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-              <span style="font-size: 1.2rem;">ℹ️</span>
-              <strong style="color: #667eea;">Global Custom URLs</strong>
+          <!-- Domain Selection Section -->
+          <div class="scan-section">
+            <div class="scan-section-header">
+              <span class="scan-section-icon">🌍</span>
+              <h3>Select Domains to Test</h3>
             </div>
-            <p style="margin: 0; font-size: 0.875rem; color: #718096;">
-              Custom URLs configured in <strong>⚙️ Config</strong> will be automatically included in all scans.
-              <a href="#" onclick="openConfigModal(); return false;" style="color: #667eea; text-decoration: underline;">Click here to configure</a>
-            </p>
+            <div class="domain-grid">
+              <label class="domain-checkbox-label">
+                <input type="checkbox" class="domain-checkbox" value="en" checked>
+                <span class="domain-code">EN</span>
+                <span class="domain-name">English</span>
+              </label>
+              <label class="domain-checkbox-label">
+                <input type="checkbox" class="domain-checkbox" value="ar" checked>
+                <span class="domain-code">AR</span>
+                <span class="domain-name">Arabic</span>
+              </label>
+              <label class="domain-checkbox-label">
+                <input type="checkbox" class="domain-checkbox" value="fr" checked>
+                <span class="domain-code">FR</span>
+                <span class="domain-name">French</span>
+              </label>
+              <label class="domain-checkbox-label">
+                <input type="checkbox" class="domain-checkbox" value="ru" checked>
+                <span class="domain-code">RU</span>
+                <span class="domain-name">Russian</span>
+              </label>
+              <label class="domain-checkbox-label">
+                <input type="checkbox" class="domain-checkbox" value="es">
+                <span class="domain-code">ES</span>
+                <span class="domain-name">Spanish</span>
+              </label>
+            </div>
           </div>
-          <button id="confirmScanBtn" class="btn btn-primary">Start Scan</button>
+
+          <!-- Info Cards -->
+          <div class="scan-info-cards">
+            <div class="scan-info-card">
+              <div class="scan-info-card-icon">🔄</div>
+              <div class="scan-info-card-content">
+                <h4>Multi-Domain Strategy</h4>
+                <p>Pages from <strong>en.guazi.com</strong> will be tested across all selected domains by replacing the subdomain.</p>
+              </div>
+            </div>
+
+            <div class="scan-info-card">
+              <div class="scan-info-card-icon">🔗</div>
+              <div class="scan-info-card-content">
+                <h4>Custom URLs</h4>
+                <p>URLs from <strong>⚙️ Config</strong> are included automatically. <a href="#" onclick="openConfigModal(); return false;">Configure now</a></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="scan-actions">
+            <button class="btn btn-secondary" onclick="closeScanModal()">Cancel</button>
+            <button id="confirmScanBtn" class="btn btn-primary btn-large">Start Scan</button>
+          </div>
         </div>
       </div>
     </div>
@@ -195,101 +215,21 @@
     <!-- Test History -->
     <section id="testHistoryPage" class="test-history">
       <h2>Test History</h2>
-      <div id="testList" class="test-list">Loading...</div>
-    </section>
-
-    <!-- Dashboard Page -->
-    <section id="dashboardPage" class="dashboard-page" style="display: none;">
-      <div class="dashboard-header">
-        <h2>Dashboard</h2>
-        <button id="refreshDashboardBtn" class="btn btn-secondary">🔄 Refresh</button>
+      <div class="test-history-filters" style="margin-bottom: 1.5rem; display: flex; gap: 1rem; align-items: center;">
+        <label style="font-weight: 600;">Filter by status:</label>
+        <select id="testStatusFilter" style="padding: 0.5rem 1rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 1rem;">
+          <option value="all">All</option>
+          <option value="running">Running</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+        </select>
+        <label style="margin-left: 1rem; font-weight: 600;">Filter by issues:</label>
+        <select id="testIssueFilter" style="padding: 0.5rem 1rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 1rem;">
+          <option value="all">All</option>
+          <option value="has-issues">Has Issues Only</option>
+        </select>
       </div>
-
-      <!-- Stats Overview -->
-      <div class="stats-overview">
-        <div class="stat-card">
-          <div class="stat-icon">📊</div>
-          <div class="stat-content">
-            <div class="stat-value" id="dashTotalTests">0</div>
-            <div class="stat-label">Total Tests</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">📄</div>
-          <div class="stat-content">
-            <div class="stat-value" id="dashTotalPages">0</div>
-            <div class="stat-label">Total Pages</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">⚠️</div>
-          <div class="stat-content">
-            <div class="stat-value" id="dashTotalIssues">0</div>
-            <div class="stat-label">Total Issues</div>
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">💾</div>
-          <div class="stat-content">
-            <div class="stat-value" id="dashDbSize">0 MB</div>
-            <div class="stat-label">Database Size</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Health Status -->
-      <div class="dashboard-section">
-        <h3>🏥 Health Status</h3>
-        <div class="health-status" id="healthStatus">
-          <div class="health-item">
-            <span class="health-label">Overall Health:</span>
-            <span class="health-value" id="overallHealth">Loading...</span>
-          </div>
-          <div class="health-item">
-            <span class="health-label">Recent Tests:</span>
-            <span class="health-value" id="recentTestsHealth">Loading...</span>
-          </div>
-          <div class="health-item">
-            <span class="health-label">Data Retention:</span>
-            <span class="health-value" id="dataRetentionHealth">Loading...</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Recent Tests -->
-      <div class="dashboard-section">
-        <h3>🕐 Recent Tests</h3>
-        <div id="recentTestsList" class="recent-tests-list">Loading...</div>
-      </div>
-
-      <!-- Cleanup Policy -->
-      <div class="dashboard-section">
-        <h3>🧹 Data Cleanup Policy</h3>
-        <div class="cleanup-policy-card">
-          <div class="policy-info">
-            <div class="policy-item">
-              <span class="policy-label">Status:</span>
-              <span class="policy-value" id="cleanupStatus">Loading...</span>
-            </div>
-            <div class="policy-item">
-              <span class="policy-label">Retention Period:</span>
-              <span class="policy-value" id="cleanupRetainDays">Loading...</span>
-            </div>
-            <div class="policy-item">
-              <span class="policy-label">Max Tests:</span>
-              <span class="policy-value" id="cleanupMaxTests">Loading...</span>
-            </div>
-            <div class="policy-item">
-              <span class="policy-label">Archive Before Delete:</span>
-              <span class="policy-value" id="cleanupArchive">Loading...</span>
-            </div>
-          </div>
-          <div class="policy-actions">
-            <button id="editCleanupPolicyBtn" class="btn btn-secondary">✎ Edit Policy</button>
-            <button id="runCleanupBtn" class="btn btn-primary">🧹 Run Cleanup Now</button>
-          </div>
-        </div>
-      </div>
+      <div id="testList" class="test-list">Loading tests...</div>
     </section>
 
     <!-- Test Details -->
@@ -425,6 +365,6 @@
     <div class="lightbox-info"></div>
   </div>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=3" defer></script>
 </body>
 </html>

@@ -17,6 +17,24 @@ import logger from '../utils/logger.js';
 
 export interface ScanOptions {
   customUrls?: string[];
+  domains?: string[];  // Multiple domains to test (e.g., ['en', 'ru', 'ar', 'fr'])
+}
+
+// Helper function to replace domain in URL
+function replaceDomainInUrl(url: string, oldDomain: string, newDomain: string): string {
+  // Handle URLs like https://en.guazi.com/path
+  const urlObj = new URL(url);
+  const hostname = urlObj.hostname;
+
+  // Extract the domain prefix and base domain
+  // For example: en.guazi.com -> prefix='en', base='guazi.com'
+  const parts = hostname.split('.');
+  if (parts.length >= 2) {
+    const baseDomain = parts.slice(1).join('.');  // guazi.com
+    urlObj.hostname = `${newDomain}.${baseDomain}`;  // ru.guazi.com
+  }
+
+  return urlObj.toString();
 }
 
 export async function runScan(domain: string, db: DatabaseManager, options?: ScanOptions): Promise<void> {
@@ -25,14 +43,28 @@ export async function runScan(domain: string, db: DatabaseManager, options?: Sca
   const customUrlsFromGlobal = db.getCustomUrls() || [];
   const allCustomUrls = [...new Set([...customUrlsFromOptions, ...customUrlsFromGlobal])]; // Merge and deduplicate
 
+  // Get multi-domain config
+  const multiDomainConfig = db.getMultiDomainsConfig();
+  let domainsToTest = options?.domains;
+  if (multiDomainConfig.enabled && multiDomainConfig.domains && multiDomainConfig.domains.length > 0) {
+    domainsToTest = domainsToTest || multiDomainConfig.domains;
+  }
+
   const mergedOptions: ScanOptions = {
-    customUrls: allCustomUrls
+    customUrls: allCustomUrls,
+    domains: domainsToTest
   };
+
+  // Log which domains will be tested
+  if (domainsToTest && domainsToTest.length > 0) {
+    console.log(`Multi-domain scan enabled: ${domainsToTest.join(', ')}`);
+  }
+
   const progress = new ProgressTracker(`SCAN ${domain}`);
   const startTime = Date.now();
 
-  // Timeout: 10 minutes
-  const TIMEOUT_MS = 10 * 60 * 1000;
+  // Timeout: 20 minutes
+  const TIMEOUT_MS = 20 * 60 * 1000;
   let timeoutTimer: NodeJS.Timeout | null = null;
   let isScanComplete = false;
 
@@ -69,7 +101,7 @@ export async function runScan(domain: string, db: DatabaseManager, options?: Sca
     const configContent = await fs.readFile(configPath, 'utf-8');
     const config: Config = JSON.parse(configContent);
 
-    const testId = db.createTest(domain);
+    const testId = db.createTest(domain, domainsToTest);
     progress.info(`Created test record ID: ${testId}`);
 
     // Initialize progress manager
@@ -214,14 +246,23 @@ export async function runScan(domain: string, db: DatabaseManager, options?: Sca
       progress.info(`    • Other: ${sampledPages.length - sampledDetails - sampledLists}`);
 
       // Step 5: Scan pages with 4 viewports
-      progress.step(5, totalSteps, `🖼️  Testing ${sampledPages.length} pages × 4 viewports (PC/Mobile × Normal/Spider)...`);
-      progressManager.updateStep(testId, 5, totalSteps, `🖼️  Testing ${sampledPages.length} pages × 4 viewports (PC/Mobile × Normal/Spider)...`);
-      progress.info(`  Total screenshots: ${sampledPages.length * 4}`);
+      // Calculate total pages considering multi-domain
+      const totalDomainsToTest = domainsToTest && domainsToTest.length > 0 ? domainsToTest.length : 1;
+      const totalPageScans = sampledPages.length * totalDomainsToTest;
+      progress.step(5, totalSteps, `🖼️  Testing ${sampledPages.length} pages × ${totalDomainsToTest} domain(s) × 4 viewports...`);
+      progressManager.updateStep(testId, 5, totalSteps, `🖼️  Testing ${sampledPages.length} pages × ${totalDomainsToTest} domain(s) × 4 viewports...`);
+      progress.info(`  Total screenshots: ${totalPageScans * 4}`);
 
       let scanIndex = 0;
-      const totalPages = sampledPages.length;
+      const totalPages = sampledPages;
       let totalIssues = 0;
       const viewportTypes = ['PC-Normal', 'Mobile-Normal', 'PC-Spider', 'Mobile-Spider'];
+
+      // Determine which domains to test
+      const domainsForScan = domainsToTest && domainsToTest.length > 0 ? domainsToTest : [domain];
+
+      // Track scanned URLs to prevent duplicates
+      const scannedUrls = new Set<string>();
 
       for (const pageFp of sampledPages) {
         try {
@@ -229,107 +270,123 @@ export async function runScan(domain: string, db: DatabaseManager, options?: Sca
           const pageCluster = clusters.find(c => c.members.includes(pageFp));
           const category = pageCluster?.category || 'other';
 
-          const pagePercent = Math.round(((scanIndex + 1) / totalPages) * 100);
-          console.log(`\n[${pagePercent}%] Testing page ${scanIndex + 1}/${totalPages}: ${pageFp.url}`);
-          console.log(`  Type: ${pageType.toUpperCase()}, Category: ${category}`);
+          // Test each domain
+          for (let domainIndex = 0; domainIndex < domainsForScan.length; domainIndex++) {
+            const currentDomain = domainsForScan[domainIndex];
+            const urlToTest = domainIndex === 0 ? pageFp.url : replaceDomainInUrl(pageFp.url, domain, currentDomain);
+            const domainLabel = domainIndex === 0 ? domain : currentDomain;
 
-          // Update progress manager with current page
-          progressManager.updatePageScan(testId, pageFp.url, pagePercent, totalPages, scanIndex);
-          progressManager.addLog(testId, `Testing: ${pageFp.url} (${scanIndex + 1}/${totalPages})`);
-          progressManager.addLog(testId, `  Type: ${pageType.toUpperCase()}, Category: ${category}`);
+            // Skip if this URL has already been scanned
+            if (scannedUrls.has(urlToTest)) {
+              logger.warn(`Skipping duplicate URL: ${urlToTest}`);
+              continue;
+            }
+            scannedUrls.add(urlToTest);
 
-          const result = await scanner.scanPage(pageFp.url, domain, category, pageType, testId);
+            const pagePercent = Math.round(((scanIndex + 1) / totalPageScans) * 100);
+            console.log(`\n[${pagePercent}%] Testing page ${scanIndex + 1}/${totalPageScans}: ${urlToTest} (${domainLabel})`);
+            console.log(`  Type: ${pageType.toUpperCase()}, Category: ${category}`);
 
-          // Update screenshot status
-          const screenshotStatus = {
-            pcNormal: !!result.screenshots.pc_normal,
-            mobileNormal: !!result.screenshots.mobile_normal,
-            pcSpider: !!result.screenshots.pc_spider,
-            mobileSpider: !!result.screenshots.mobile_spider,
-          };
-          progressManager.updatePageDetails(testId, pageType, category, screenshotStatus);
+            // Update progress manager with current page
+            progressManager.updatePageScan(testId, urlToTest, pagePercent, totalPageScans, scanIndex);
+            progressManager.addLog(testId, `Testing: ${urlToTest} (${scanIndex + 1}/${totalPageScans}) [${domainLabel}]`);
+            progressManager.addLog(testId, `  Type: ${pageType.toUpperCase()}, Category: ${category}`);
 
-          const viewportStatus = (Object.keys(result.screenshots) as Array<keyof typeof result.screenshots>).map(k => {
-            return result.screenshots[k] ? `✓` : `✗`;
-          }).join(' ');
+            const result = await scanner.scanPage(urlToTest, domainLabel, category, pageType, testId);
 
-          console.log(`  Viewports: [${viewportStatus}]`);
-          console.log(`  Issues found: ${result.issues.length}`);
-          progressManager.addLog(testId, `  Screenshots: [${viewportStatus}]`);
-          progressManager.addLog(testId, `  Issues: ${result.issues.length}`);
+            // Update screenshot status
+            const screenshotStatus = {
+              pcNormal: !!result.screenshots.pc_normal,
+              mobileNormal: !!result.screenshots.mobile_normal,
+              pcSpider: !!result.screenshots.pc_spider,
+              mobileSpider: !!result.screenshots.mobile_spider,
+            };
+            progressManager.updatePageDetails(testId, pageType, category, screenshotStatus);
 
-          // Create page record first (without screenshot issues)
-          const pageId = db.createPage({
-            test_id: testId,
-            url: result.url,
-            domain: result.domain,
-            page_type: result.pageType,
-            category: result.category,
-            status: result.status === 'timeout' ? 'error' : result.status,
-            issues_count: result.issues.length,
-            screenshots: result.screenshots,
-            screenshot_issues: undefined,  // Will be updated asynchronously
-            load_time: result.loadTime,
-            http_status: result.httpStatus,
-            request_ids: result.requestIds && Object.keys(result.requestIds).length > 0 ? result.requestIds : undefined,
-            seo: result.seo,
-          });
+            const viewportStatus = (Object.keys(result.screenshots) as Array<keyof typeof result.screenshots>).map(k => {
+              return result.screenshots[k] ? `✓` : `✗`;
+            }).join(' ');
 
-          // Analyze screenshot quality asynchronously (don't block the scan)
-          screenshotAnalyzer.analyzePageScreenshots(result.screenshots)
-            .then(screenshotIssues => {
-              // Count screenshot quality issues and filter nulls
-              const filteredIssues: Record<string, {
-                type: string;
-                severity: string;
-                message: string;
-                whitePercentage: number;
-              }> = {};
+            console.log(`  Viewports: [${viewportStatus}]`);
+            console.log(`  Issues found: ${result.issues.length}`);
+            progressManager.addLog(testId, `  Screenshots: [${viewportStatus}]`);
+            progressManager.addLog(testId, `  Issues: ${result.issues.length}`);
 
-              for (const [viewport, issue] of Object.entries(screenshotIssues)) {
-                if (issue) {
-                  // Only log significant issues
-                  if (issue.severity !== 'info') {
-                    console.log(`    [Async] ${result.url} ${viewport}: ${issue.message}`);
+            // Create page record first (without screenshot issues)
+            const pageId = db.createPage({
+              test_id: testId,
+              url: result.url,
+              domain: result.domain,
+              page_type: result.pageType,
+              category: result.category,
+              status: result.status === 'timeout' ? 'error' : result.status,
+              issues_count: result.issues.length,
+              screenshots: result.screenshots,
+              screenshot_issues: undefined,  // Will be updated asynchronously
+              load_time: result.loadTime,
+              http_status: result.httpStatus,
+              request_ids: result.requestIds && Object.keys(result.requestIds).length > 0 ? result.requestIds : undefined,
+              seo: result.seo,
+              original_url: pageFp.url,  // Store the original URL used for filtering
+              original_domain: domain,  // Store the original domain used for filtering
+            });
+
+            // Analyze screenshot quality asynchronously (don't block the scan)
+            screenshotAnalyzer.analyzePageScreenshots(result.screenshots)
+              .then(screenshotIssues => {
+                // Count screenshot quality issues and filter nulls
+                const filteredIssues: Record<string, {
+                  type: string;
+                  severity: string;
+                  message: string;
+                  whitePercentage: number;
+                }> = {};
+
+                for (const [viewport, issue] of Object.entries(screenshotIssues)) {
+                  if (issue) {
+                    // Only log significant issues
+                    if (issue.severity !== 'info') {
+                      console.log(`    [Async] ${result.url} ${viewport}: ${issue.message}`);
+                    }
+                    filteredIssues[viewport] = {
+                      type: issue.type,
+                      severity: issue.severity,
+                      message: issue.message,
+                      whitePercentage: issue.whitePercentage,
+                    };
                   }
-                  filteredIssues[viewport] = {
-                    type: issue.type,
-                    severity: issue.severity,
-                    message: issue.message,
-                    whitePercentage: issue.whitePercentage,
-                  };
                 }
-              }
 
-              // Update database with screenshot issues
-              if (Object.keys(filteredIssues).length > 0) {
-                const stmt = db.getDb().prepare(
-                  'UPDATE pages SET screenshot_issues = ? WHERE id = ?'
-                );
-                stmt.run(JSON.stringify(filteredIssues), pageId);
-              }
-            })
-            .catch(error => {
-              logger.error(`Failed to analyze screenshots for ${result.url}`, error);
-            });
+                // Update database with screenshot issues
+                if (Object.keys(filteredIssues).length > 0) {
+                  const stmt = db.getDb().prepare(
+                    'UPDATE pages SET screenshot_issues = ? WHERE id = ?'
+                  );
+                  stmt.run(JSON.stringify(filteredIssues), pageId);
+                }
+              })
+              .catch(error => {
+                logger.error(`Failed to analyze screenshots for ${result.url}`, error);
+              });
 
-          for (const issue of result.issues) {
-            db.createIssue({
-              page_id: pageId,
-              type: issue.type,
-              severity: issue.severity,
-              message: issue.message,
-              viewport: issue.viewport,
-            });
-          }
+            for (const issue of result.issues) {
+              db.createIssue({
+                page_id: pageId,
+                type: issue.type,
+                severity: issue.severity,
+                message: issue.message,
+                viewport: issue.viewport,
+              });
+            }
 
-          totalIssues += result.issues.length;
-          scanIndex++;
+            totalIssues += result.issues.length;
+            scanIndex++;
+          }  // End of domain loop
 
         } catch (error) {
           progress.error(`Failed to scan ${pageFp.url}`, error);
         }
-      }
+      }  // End of page loop
 
       // Complete
       isScanComplete = true;
@@ -338,7 +395,7 @@ export async function runScan(domain: string, db: DatabaseManager, options?: Sca
       const duration = Date.now() - startTime;
       db.updateTest(testId, {
         status: 'completed',
-        total_pages: totalPages,
+        total_pages: totalPageScans,
         total_issues: totalIssues,
         categories: clusters.length,
         duration_ms: duration,
@@ -353,8 +410,8 @@ export async function runScan(domain: string, db: DatabaseManager, options?: Sca
       progress.complete(`Scan completed successfully!`);
       progress.info('='.repeat(60));
       progress.info(`Summary:`);
-      progress.info(`  • Pages tested: ${totalPages}`);
-      progress.info(`  • Screenshots captured: ${totalPages * 4} (4 viewports per page)`);
+      progress.info(`  • Pages tested: ${totalPageScans}`);
+      progress.info(`  • Screenshots captured: ${totalPageScans * 4} (4 viewports per page)`);
       progress.info(`  • Issues found: ${totalIssues}`);
       progress.info(`  • Categories: ${clusters.length}`);
       progress.info(`  • Duration: ${Math.round(duration / 1000)}s`);

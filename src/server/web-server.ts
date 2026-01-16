@@ -100,19 +100,27 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
    */
   app.post('/api/scan/start', async (req, res) => {
     try {
-      const { domain, custom_urls } = req.body;
+      const { domain, custom_urls, domains } = req.body;
 
       if (!domain) {
         res.status(400).json({ error: 'Domain is required' });
         return;
       }
 
-      // Start scan asynchronously
-      runScan(domain, db, { customUrls: custom_urls }).catch(error => {
+      // Start scan asynchronously with optional multi-domain support
+      runScan(domain, db, {
+        customUrls: custom_urls,
+        domains: domains  // Pass domain codes array (e.g., ['en', 'ru', 'ar', 'fr'])
+      }).catch(error => {
         console.error('Scan failed:', error);
       });
 
-      res.json({ message: 'Scan started', domain });
+      res.json({
+        message: 'Scan started',
+        domain,
+        domains: domains || [domain],
+        multiDomain: !!(domains && domains.length > 1)
+      });
     } catch (error) {
       res.status(500).json({ error: 'Failed to start scan' });
     }
@@ -455,6 +463,57 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
       res.json({ message: 'Custom URLs updated successfully', custom_urls });
     } catch (error) {
       res.status(500).json({ error: 'Failed to update custom URLs' });
+    }
+  });
+
+  /**
+   * GET /api/config/multi-domains - Get multi-domain configuration
+   */
+  app.get('/api/config/multi-domains', (req, res) => {
+    try {
+      const config = db.getMultiDomainsConfig();
+      res.json(config);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch multi-domain config' });
+    }
+  });
+
+  /**
+   * PUT /api/config/multi-domains - Update multi-domain configuration
+   */
+  app.put('/api/config/multi-domains', (req, res) => {
+    try {
+      const { enabled, domains } = req.body;
+
+      if (enabled !== undefined && typeof enabled !== 'boolean') {
+        res.status(400).json({ error: 'enabled must be a boolean' });
+        return;
+      }
+
+      if (domains !== undefined) {
+        if (!Array.isArray(domains)) {
+          res.status(400).json({ error: 'domains must be an array' });
+          return;
+        }
+        // Validate domain codes
+        const validDomainCodes = ['en', 'ru', 'ar', 'fr', 'es'];
+        const invalidDomains = domains.filter(d => !validDomainCodes.includes(d));
+        if (invalidDomains.length > 0) {
+          res.status(400).json({ error: `Invalid domain codes: ${invalidDomains.join(', ')}` });
+          return;
+        }
+      }
+
+      const currentConfig = db.getMultiDomainsConfig();
+      const newConfig = {
+        enabled: enabled !== undefined ? enabled : currentConfig.enabled,
+        domains: domains !== undefined ? domains : currentConfig.domains,
+      };
+
+      db.setMultiDomainsConfig(newConfig);
+      res.json({ message: 'Multi-domain config updated successfully', config: newConfig });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to update multi-domain config' });
     }
   });
 
