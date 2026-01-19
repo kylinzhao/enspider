@@ -44,5 +44,19 @@
       "Bash(.github/scripts/show-review.sh:*)",
       "Bash(.github/scripts/list-reviews.sh:*)"
     ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "code review|Code Review|Code review|review code|review PR|审查代码",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "重要：用户要求进行 code review。你必须使用中文进行所有 code review 相关的输出，包括：1. 问题描述 2. 改进建议 3. 评分和结论 4. 所有注释和说明。请确保所有 review 内容都是中文。",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }
