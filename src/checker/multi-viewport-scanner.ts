@@ -27,6 +27,81 @@ export class MultiViewportScanner {
     );
   }
 
+  /**
+   * Wait for page content to load based on page type
+   * For listing pages, wait for actual list items to appear
+   */
+  private async waitForContentLoad(
+    page: Page,
+    pageType: 'homepage' | 'detail' | 'list' | 'other'
+  ): Promise<void> {
+    const LISTING_SELECTORS = [
+      '.car-list',           // Common list container
+      '.list-item',          // Individual list items
+      '[class*="list"]',     // Any element with 'list' in class
+      '[class*="item"]',     // Any element with 'item' in class
+      '[class*="product"]',  // Product listings
+      '[class*="card"]',     // Card-based layouts
+    ];
+
+    if (pageType === 'list') {
+      logger.info('Waiting for listing page content to load...');
+
+      try {
+        // Strategy 1: Wait for network to be mostly idle
+        await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {
+          logger.warn('Network idle timeout, continuing anyway');
+        });
+
+        // Strategy 2: Wait for at least one listing selector to have content
+        const maxRetries = 10;
+        let foundContent = false;
+
+        for (let attempt = 0; attempt < maxRetries && !foundContent; attempt++) {
+          for (const selector of LISTING_SELECTORS) {
+            try {
+              const element = await page.$(selector);
+              if (element) {
+                // Check if element has children (actual content)
+                const hasChildren = await element.evaluate((el) => {
+                  return el.children.length > 0;
+                });
+
+                if (hasChildren) {
+                  logger.info(`Found listing content with selector: ${selector}`);
+                  foundContent = true;
+                  break;
+                }
+              }
+            } catch {
+              // Selector not found, try next one
+            }
+          }
+
+          if (!foundContent) {
+            // Wait before retry
+            await page.waitForTimeout(500);
+          }
+        }
+
+        if (!foundContent) {
+          logger.warn('Could not detect specific listing content, using timeout fallback');
+        }
+
+        // Strategy 3: Final wait to ensure rendering is complete
+        await page.waitForTimeout(2000);
+      } catch (error) {
+        logger.warn('Error waiting for listing content:', error);
+        // Fallback to fixed timeout
+        await page.waitForTimeout(5000);
+      }
+    } else {
+      // For non-listing pages, use standard wait
+      await page.waitForTimeout(this.config.delay);
+      await page.waitForTimeout(2000); // Additional wait for async content
+    }
+  }
+
   async scanPage(
     url: string,
     domain: string,
@@ -92,10 +167,8 @@ export class MultiViewportScanner {
           result.httpStatus = response?.status() || 0;
         }
 
-        await page.waitForTimeout(this.config.delay);
-
-        // Add 3 seconds delay for async data loading (e.g. car lists)
-        await page.waitForTimeout(3000);
+        // Wait for content to load based on page type
+        await this.waitForContentLoad(page, pageType);
 
         if (this.config.checks.viewportOverflow || this.config.checks.horizontalScroll) {
           const viewportType = mode.name.includes('mobile') ? 'mobile' : 'pc';
@@ -119,8 +192,9 @@ export class MultiViewportScanner {
           // Ignore errors
         }
 
-        // Short fixed wait to let content settle
-        await page.waitForTimeout(800);
+        // Wait longer for listing pages to ensure lazy-loaded content renders
+        const settleTime = pageType === 'list' ? 2000 : 800;
+        await page.waitForTimeout(settleTime);
 
         try {
           const screenshot = await this.screenshotCapture.capture(
