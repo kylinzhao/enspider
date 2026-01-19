@@ -10,7 +10,8 @@
     "monitor:en": "node --loader ts-node/esm src/index.ts --domain en.guazi.com",
     "monitor:ar": "node --loader ts-node/esm src/index.ts --domain ar.guazi.com",
     "server": "node --loader ts-node/esm src/server/index.ts",
-    "dev": "node --loader ts-node/esm src/server/index.ts"
+    "dev": "node --loader ts-node/esm src/server/index.ts",
+    "deploy": "./deploy.sh"
   },
   "keywords": [
     "accessibility",

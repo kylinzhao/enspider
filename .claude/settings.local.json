@@ -30,7 +30,19 @@
       "Bash(git checkout:*)",
       "Bash(npm run dev:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(xargs:*)",
+      "mcp__chrome-devtools__new_page",
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__chrome-devtools__click",
+      "mcp__chrome-devtools__close_page",
+      "Bash(npx:*)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(gh pr create:*)",
+      "Bash(chmod:*)",
+      "Bash(.github/scripts/show-review.sh:*)",
+      "Bash(.github/scripts/list-reviews.sh:*)"
     ]
   }
 }
