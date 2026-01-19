@@ -11,6 +11,7 @@ export interface TestRecord {
   total_issues: number;
   categories: number;
   duration_ms: number;
+  source?: 'manual' | 'scheduled';
 }
 
 export interface PageRecord {
@@ -279,6 +280,18 @@ export class DatabaseManager {
       // Column might already exist
     }
 
+    // Add source column to tests table
+    try {
+      const columns = this.db.pragma('table_info(tests)') as any[];
+      const hasSource = columns.some((col) => col.name === 'source');
+
+      if (!hasSource) {
+        this.db.exec('ALTER TABLE tests ADD COLUMN source TEXT DEFAULT "manual"');
+      }
+    } catch (error) {
+      // Column might already exist
+    }
+
     // Insert default multi-domain config if not exists
     let existingMultiDomainConfig = this.db.prepare('SELECT * FROM global_config WHERE key = ?').get('multi_domains') as any;
     if (!existingMultiDomainConfig) {
@@ -321,13 +334,13 @@ export class DatabaseManager {
   }
 
   // Test operations
-  createTest(domain: string, domains?: string[]): number {
+  createTest(domain: string, domains?: string[], source: 'manual' | 'scheduled' = 'manual'): number {
     const domainsJson = domains ? JSON.stringify(domains) : null;
     const stmt = this.db.prepare(`
-      INSERT INTO tests (domain, domains, timestamp, status)
-      VALUES (?, ?, ?, 'running')
+      INSERT INTO tests (domain, domains, timestamp, status, source)
+      VALUES (?, ?, ?, 'running', ?)
     `);
-    const result = stmt.run(domain, domainsJson, Date.now());
+    const result = stmt.run(domain, domainsJson, Date.now(), source);
     return result.lastInsertRowid as number;
   }
 

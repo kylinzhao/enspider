@@ -110,7 +110,8 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
       // Start scan asynchronously with optional multi-domain support
       runScan(domain, db, {
         customUrls: custom_urls,
-        domains: domains  // Pass domain codes array (e.g., ['en', 'ru', 'ar', 'fr'])
+        domains: domains,  // Pass domain codes array (e.g., ['en', 'ru', 'ar', 'fr'])
+        source: 'manual'
       }).catch(error => {
         console.error('Scan failed:', error);
       });
@@ -317,7 +318,7 @@ export function createWebServer(db: DatabaseManager, port: number = 3000): expre
       }
 
       // Start scan asynchronously
-      runScan(task.domain, db).catch(error => {
+      runScan(task.domain, db, { source: 'manual' }).catch(error => {
         console.error('Scheduled scan failed:', error);
       });
 

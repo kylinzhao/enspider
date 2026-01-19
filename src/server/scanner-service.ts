@@ -18,6 +18,7 @@ import logger from '../utils/logger.js';
 export interface ScanOptions {
   customUrls?: string[];
   domains?: string[];  // Multiple domains to test (e.g., ['en', 'ru', 'ar', 'fr'])
+  source?: 'manual' | 'scheduled';
 }
 
 // Helper function to replace domain in URL
@@ -52,7 +53,8 @@ export async function runScan(domain: string, db: DatabaseManager, options?: Sca
 
   const mergedOptions: ScanOptions = {
     customUrls: allCustomUrls,
-    domains: domainsToTest
+    domains: domainsToTest,
+    source: options?.source || 'manual'
   };
 
   // Log which domains will be tested
@@ -101,8 +103,8 @@ export async function runScan(domain: string, db: DatabaseManager, options?: Sca
     const configContent = await fs.readFile(configPath, 'utf-8');
     const config: Config = JSON.parse(configContent);
 
-    const testId = db.createTest(domain, domainsToTest);
-    progress.info(`Created test record ID: ${testId}`);
+    const testId = db.createTest(domain, domainsToTest, mergedOptions.source);
+    progress.info(`Created test record ID: ${testId} (Source: ${mergedOptions.source})`);
 
     // Initialize progress manager
     progressManager.createScan(testId, domain);

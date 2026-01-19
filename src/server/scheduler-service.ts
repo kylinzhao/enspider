@@ -92,7 +92,7 @@ class SchedulerService {
       });
 
       // Run the scan (will use global custom URLs from database)
-      await runScan(domain, this.db);
+      await runScan(domain, this.db, { source: 'scheduled' });
 
       console.log(`[Scheduler] Task ${taskId} completed successfully`);
     } catch (error) {

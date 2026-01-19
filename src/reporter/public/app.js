@@ -324,6 +324,20 @@ function renderTestCard(test) {
         <div class="test-item-domain">
           <span style="color: #667eea; font-weight: 600; font-size: 0.75rem; background: #e6e6ff; padding: 2px 6px; border-radius: 4px; margin-right: 0.5rem;">#${test.id}</span>
           ${test.domain}
+          <div class="test-item-source" style="
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-left: 0.5rem;
+            background: ${test.source === 'scheduled' ? '#ebf8ff' : '#f0fff4'};
+            color: ${test.source === 'scheduled' ? '#2b6cb0' : '#2f855a'};
+            border: 1px solid ${test.source === 'scheduled' ? '#bee3f8' : '#c6f6d5'};
+          ">
+            ${test.source === 'scheduled' ? '⏰ Scheduled' : '👤 Manual'}
+          </div>
         </div>
         <div class="test-item-status ${test.status}">${test.status}</div>
       </div>
@@ -390,6 +404,28 @@ async function viewTest(testId, updateUrl = true) {
     document.getElementById('totalIssues').textContent = currentTest.total_issues;
     document.getElementById('categories').textContent = currentTest.categories;
     document.getElementById('duration').textContent = formatDuration(currentTest.duration_ms);
+
+    // Add source to summary
+    const summaryStats = document.querySelector('.summary-stats');
+    if (summaryStats) {
+      // Check if we already added source
+      let sourceStat = document.getElementById('testSource');
+      if (!sourceStat) {
+        const statDiv = document.createElement('div');
+        statDiv.className = 'stat';
+        statDiv.innerHTML = `
+          <span class="stat-label">Source:</span>
+          <span id="testSource" class="stat-value"></span>
+        `;
+        summaryStats.appendChild(statDiv);
+        sourceStat = statDiv.querySelector('#testSource');
+      }
+      
+      const sourceText = currentTest.source === 'scheduled' ? 'Scheduled' : 'Manual';
+      const sourceIcon = currentTest.source === 'scheduled' ? '⏰' : '👤';
+      sourceStat.textContent = `${sourceIcon} ${sourceText}`;
+      sourceStat.style.color = currentTest.source === 'scheduled' ? '#2b6cb0' : '#2f855a';
+    }
 
     // Hide all other pages and show only details
     document.querySelector('.test-history').style.display = 'none';
