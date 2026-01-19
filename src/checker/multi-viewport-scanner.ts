@@ -48,16 +48,32 @@ export class MultiViewportScanner {
       logger.info('Waiting for listing page content to load...');
 
       try {
-        // Strategy 1: Wait for network to be mostly idle
-        await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {
+        // CRITICAL: Wait for 'load' event instead of 'domcontentloaded'
+        // This ensures all async resources are loaded
+        await page.waitForLoadState('load', { timeout: 10000 }).catch(() => {
+          logger.warn('Load state timeout, continuing anyway');
+        });
+
+        // Wait for network to be mostly idle
+        await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {
           logger.warn('Network idle timeout, continuing anyway');
         });
 
-        // Strategy 2: Wait for at least one listing selector to have content
-        const maxRetries = 10;
+        // Strategy 2: Wait for actual content, checking for "No source found" error
+        const maxRetries = 20; // Increased retries
         let foundContent = false;
+        let hasError = false;
 
-        for (let attempt = 0; attempt < maxRetries && !foundContent; attempt++) {
+        for (let attempt = 0; attempt < maxRetries && !foundContent && !hasError; attempt++) {
+          // Check for error messages first
+          const bodyText = await page.evaluate(() => document.body.innerText);
+          if (bodyText.includes('No source found') || bodyText.includes('0 RESULTS')) {
+            logger.warn(`Page shows error message on attempt ${attempt + 1}, waiting...`);
+            await page.waitForTimeout(1000);
+            continue;
+          }
+
+          // Try to find listing content
           for (const selector of LISTING_SELECTORS) {
             try {
               const element = await page.$(selector);
@@ -68,9 +84,18 @@ export class MultiViewportScanner {
                 });
 
                 if (hasChildren) {
-                  logger.info(`Found listing content with selector: ${selector}`);
-                  foundContent = true;
-                  break;
+                  // Verify it's not just navigation/menu items
+                  const hasSubstantialContent = await element.evaluate((el) => {
+                    // Check if there are substantial content items
+                    const items = el.querySelectorAll('[class*="item"], [class*="card"], [class*="car"]');
+                    return items.length >= 3; // At least 3 items
+                  });
+
+                  if (hasSubstantialContent) {
+                    logger.info(`Found listing content with selector: ${selector}`);
+                    foundContent = true;
+                    break;
+                  }
                 }
               }
             } catch {
@@ -78,27 +103,29 @@ export class MultiViewportScanner {
             }
           }
 
-          if (!foundContent) {
-            // Wait before retry
+          if (!foundContent && !hasError) {
+            // Wait longer before retry
             await page.waitForTimeout(500);
           }
         }
 
         if (!foundContent) {
-          logger.warn('Could not detect specific listing content, using timeout fallback');
+          logger.warn('Could not detect specific listing content, using extended timeout');
+          // Give more time for slow-loading pages
+          await page.waitForTimeout(5000);
         }
 
         // Strategy 3: Final wait to ensure rendering is complete
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(3000);
       } catch (error) {
         logger.warn('Error waiting for listing content:', error);
         // Fallback to fixed timeout
-        await page.waitForTimeout(5000);
+        await page.waitForTimeout(8000);
       }
     } else {
       // For non-listing pages, use standard wait
       await page.waitForTimeout(this.config.delay);
-      await page.waitForTimeout(2000); // Additional wait for async content
+      await page.waitForTimeout(500); // Reduced from 2000ms
     }
   }
 
@@ -141,6 +168,18 @@ export class MultiViewportScanner {
           hasTouch: mode.config.hasTouch,
         });
 
+        // CRITICAL: For listing pages, add init script to set necessary storage
+        if (pageType === 'list') {
+          await context.addInitScript(() => {
+            // Set essential localStorage items that the site expects
+            const guid = crypto.randomUUID ? crypto.randomUUID() : 'temp-' + Math.random().toString(36).substring(7);
+            localStorage.setItem('global_guazi_guid', guid);
+            localStorage.setItem('uuid', guid);
+            localStorage.setItem('hasVisited', 'true');
+            localStorage.setItem('language', 'en');
+          });
+        }
+
         await context.route('**/*', route => {
           const urlStr = route.request().url();
           if (/\.(woff2?|ttf|otf|eot)(\?|$)/i.test(urlStr)) {
@@ -152,6 +191,30 @@ export class MultiViewportScanner {
         const page = await context.newPage();
 
         logger.info(`Testing ${url} with ${mode.name}`);
+
+        // CRITICAL: For listing pages on first viewport, visit homepage to establish session/cookies
+        if (pageType === 'list' && mode.name === 'pc_normal') {
+          try {
+            const urlObj = new URL(url);
+            const homepage = `${urlObj.protocol}//${urlObj.host}/`;
+            logger.info(`🔑 Visiting homepage to establish session: ${homepage}`);
+
+            // Visit homepage with full page load to trigger cookie creation
+            await page.goto(homepage, {
+              waitUntil: 'load',  // Wait for full page load, not just domcontentloaded
+              timeout: 20000
+            });
+
+            // Wait for JavaScript to execute and set cookies/storage
+            await page.waitForTimeout(3000);
+
+            // Verify cookies were set
+            const cookies = await context.cookies();
+            logger.info(`✓ Established ${cookies.length} cookies from homepage`);
+          } catch (error) {
+            logger.warn(`Failed to visit homepage, continuing anyway:`, error);
+          }
+        }
 
         // Measure page load time and HTTP status
         const pageLoadStart = Date.now();
