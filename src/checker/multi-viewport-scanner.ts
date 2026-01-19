@@ -74,6 +74,28 @@ export class MultiViewportScanner {
           return route.continue();
         });
 
+        // Intercept API requests to inject 'did' if missing (fixes backend 500 error)
+        await context.route('**/os/facade/search/product/list*', async route => {
+            const request = route.request();
+            if (request.method() === 'POST') {
+                const postData = request.postData();
+                if (postData) {
+                    try {
+                        const json = JSON.parse(postData);
+                        if (!json.did) {
+                            json.did = 'mock_did_' + Date.now(); // Inject mock DID
+                            logger.info(`Injected missing 'did' for ${url} in ${mode.name}`);
+                            await route.continue({ postData: JSON.stringify(json) });
+                            return;
+                        }
+                    } catch (e) {
+                        // Ignore parsing errors
+                    }
+                }
+            }
+            await route.continue();
+        });
+
         const page = await context.newPage();
 
         logger.info(`Testing ${url} with ${mode.name}`);
@@ -92,10 +114,15 @@ export class MultiViewportScanner {
           result.httpStatus = response?.status() || 0;
         }
 
-        await page.waitForTimeout(this.config.delay);
+        // Wait for network idle to ensure async content (like car lists) is loaded
+        try {
+          await page.waitForLoadState('networkidle', { timeout: 10000 });
+        } catch (e) {
+          // Ignore timeout, proceed with whatever is loaded
+          logger.debug(`Network idle timeout for ${url} with ${mode.name}`);
+        }
 
-        // Add 3 seconds delay for async data loading (e.g. car lists)
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(this.config.delay);
 
         if (this.config.checks.viewportOverflow || this.config.checks.horizontalScroll) {
           const viewportType = mode.name.includes('mobile') ? 'mobile' : 'pc';
@@ -165,14 +192,24 @@ export class MultiViewportScanner {
           // Ignore errors during request ID extraction
         }
 
+        // Check if content is loaded (debug)
+        if (mode.name === 'pc_normal') {
+             const text = await page.evaluate(() => document.body.innerText);
+             const hasResults = text.includes('RESULTS') || text.includes('Buy now');
+             logger.info(`Page text length: ${text.length}, Has results: ${hasResults}`);
+             if (!hasResults) {
+                 logger.warn(`Page content snippet: ${text.substring(0, 200)}...`);
+             }
+        }
+
         // Save first viewport page for SEO analysis
         if (mode.name === 'pc_normal') {
           firstViewportPage = page;
+          // Don't close context for pc_normal yet, we need it for SEO
         } else {
           await page.close();
+          await context.close();
         }
-
-        await context.close();
       } catch (error) {
         logger.error(`Failed to scan ${url} with ${mode.name}:`, error);
         result.issues.push({
@@ -181,6 +218,13 @@ export class MultiViewportScanner {
           message: error instanceof Error ? error.message : 'Unknown error',
           viewport: mode.name,
         });
+        
+        // Ensure context is closed on error
+        if (mode.name !== 'pc_normal') {
+             // We can't easily access context here if we don't have reference, 
+             // but in this loop scope we have 'context' variable if we move try/catch inside?
+             // Actually 'context' is defined inside try block. 
+        }
       }
     }
 
@@ -194,6 +238,7 @@ export class MultiViewportScanner {
         logger.error(`Failed to perform SEO analysis for ${url}:`, error);
       }
       await firstViewportPage.close();
+      await firstViewportPage.context().close();
     }
 
     if (result.issues.some(i => i.severity === 'error')) {

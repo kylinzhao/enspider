@@ -42,7 +42,7 @@ export function getUserAgents(): { normal: string; spider: string } {
   const testTag = ' enspider-test/1.0';
 
   return {
-    normal: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36${testTag}`,
+    normal: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36`,
     spider: `Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)${testTag}`
   };
 }
